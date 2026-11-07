@@ -10,6 +10,8 @@ import (
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/itchyny/gojq"
 )
 
 func obj() map[string]any {
@@ -87,6 +89,59 @@ func TestEvalErrors(t *testing.T) {
 			}
 			if got != (Result{}) {
 				t.Errorf("got non-empty result %+v alongside error", got)
+			}
+		})
+	}
+}
+
+func TestEvalSuggestsQuotingNonASCIIKeys(t *testing.T) {
+	const noHint = ""
+	tests := []struct {
+		name string
+		expr string
+		want string
+	}{
+		{"katakana", ".テスト", `."テスト"`},
+		{"kanji", ".名前", `."名前"`},
+		{"long vowel mark", ".テストキー", `."テストキー"`},
+		{"after a field", ".a.テスト", `."テスト"`},
+		{"after a pipe", ".a | .テスト", `."テスト"`},
+		{"followed by an index", ".テスト[0]", `."テスト"`},
+		{"followed by a pipe", ".テスト|.b", `."テスト"`},
+		{"followed by a full-width space", ".テスト　", `."テスト"`},
+		{"ascii then japanese", ".aテスト", `."aテスト"`},
+		{"japanese then ascii", ".テストa_1", `."テストa_1"`},
+		{"no dot", "テスト", noHint},
+		{"space after the dot", ". テスト", noHint},
+		{"space before the key", ".a テスト", noHint},
+		{"recursive descent", "..テスト", noHint},
+		{"full-width space", ".　", noHint},
+		{"emoji", ".😀", noHint},
+		{"ascii syntax error", ".[", noHint},
+		{"unterminated string", `."テスト`, noHint},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Eval(context.Background(), tt.expr, []any{nil}, 0)
+			if err == nil {
+				t.Fatal("got no error")
+			}
+			var parseErr *gojq.ParseError
+			if !errors.As(err, &parseErr) {
+				t.Errorf("error %v does not wrap a parse error", err)
+			}
+			if tt.want == noHint {
+				if strings.Contains(err.Error(), "(try") {
+					t.Errorf("unexpected hint: %v", err)
+				}
+				return
+			}
+			if !strings.HasSuffix(err.Error(), "(try "+tt.want+")") {
+				t.Errorf("error %q does not suggest %s", err, tt.want)
+			}
+			// The suggestion has to work.
+			if _, err := Eval(context.Background(), tt.want, []any{map[string]any{}}, 0); err != nil {
+				t.Errorf("suggestion %s fails: %v", tt.want, err)
 			}
 		})
 	}

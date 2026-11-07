@@ -6,9 +6,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/itchyny/gojq"
@@ -76,9 +78,58 @@ func compile(expr string) (*gojq.Code, error) {
 	}
 	query, err := gojq.Parse(expr)
 	if err != nil {
-		return nil, err
+		return nil, withKeyHint(expr, err)
 	}
 	return gojq.Compile(query, gojq.WithEnvironLoader(os.Environ))
+}
+
+// withKeyHint suggests quoting when a parse error comes from an object key written
+// like .テスト, because jq only allows ASCII in unquoted keys.
+func withKeyHint(expr string, err error) error {
+	var parseErr *gojq.ParseError
+	if !errors.As(err, &parseErr) {
+		return err
+	}
+	key, ok := unquotedKey(expr, parseErr.Offset-len(parseErr.Token))
+	if !ok {
+		return err
+	}
+	return fmt.Errorf(`%w (try ."%s")`, err, key)
+}
+
+// unquotedKey returns the object key around offset, the position of the first
+// character the parser rejected. It reports false unless that character is a
+// non-ASCII letter in a key that follows a single dot.
+func unquotedKey(expr string, offset int) (string, bool) {
+	if offset <= 0 || offset >= len(expr) {
+		return "", false
+	}
+	if r, _ := utf8.DecodeRuneInString(expr[offset:]); r < utf8.RuneSelf || !isKeyRune(r) {
+		return "", false
+	}
+
+	// The ASCII start of a key like .Aテスト was accepted before the parser failed.
+	start := offset
+	for start > 0 && expr[start-1] < utf8.RuneSelf && isKeyRune(rune(expr[start-1])) {
+		start--
+	}
+	if start == 0 || expr[start-1] != '.' || (start >= 2 && expr[start-2] == '.') {
+		return "", false
+	}
+
+	end := offset
+	for end < len(expr) {
+		r, size := utf8.DecodeRuneInString(expr[end:])
+		if !isKeyRune(r) {
+			break
+		}
+		end += size
+	}
+	return expr[start:end], true
+}
+
+func isKeyRune(r rune) bool {
+	return r == '_' || unicode.IsLetter(r) || unicode.IsNumber(r) || unicode.IsMark(r)
 }
 
 func appendValue(out *bytes.Buffer, v any) error {

@@ -329,6 +329,15 @@ func TestCmdPipeWithJapanese(t *testing.T) {
 	s.wantConsoleContains(`."名前"`)
 }
 
+func TestUnquotedJapaneseKeyGetsAHint(t *testing.T) {
+	f := newFixture(t)
+	s := f.start(`"{jitto}" data.json`)
+	s.showingDoc()
+	s.typeKeys(".名前")
+	s.see(`(try ."名前")`)
+	s.see(`"a": "one"`) // The last good result stays.
+}
+
 func TestCmdPipeWithStdoutOnConsole(t *testing.T) {
 	f := newFixture(t)
 	s := f.start(`cmd /c "type data.json | "{jitto}""`)
