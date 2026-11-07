@@ -68,7 +68,12 @@ jitto data.json | Set-Content result.json
 | Ctrl+N Ctrl+P | キーの候補を選ぶ |
 | Tab Ctrl+Y | 選んだ候補を入力 |
 | Esc | 候補の一覧を閉じる（次に編集するまで） |
+| Ctrl+W（Alt+Backspace） | カーソルの前の単語を削除 |
+| Alt+D（Alt+Delete） | カーソルの後ろの単語を削除 |
+| Ctrl+← Ctrl+→（Alt+B Alt+F） | 単語単位でカーソルを移動 |
 | ← → など | 入力欄の編集 |
+
+単語は、キーに使う文字（英数字、`_`、日本語などの文字）が続く部分と、記号が続く部分で区切ります。たとえば `.items[0].name` で Ctrl+W を押すと `name` だけが消えて `.items[0].` が残り、キーの候補を選び直せます。
 
 ## 動作の詳細
 

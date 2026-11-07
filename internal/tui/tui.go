@@ -268,8 +268,41 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "esc":
 		m.compClosed = true
 		return nil
+	// These replace textinput's word keys. See word.go.
+	case "ctrl+w", "alt+backspace":
+		return m.deleteTo(wordStart(m.runes(), m.input.Position()))
+	case "alt+d", "alt+delete":
+		return m.deleteTo(wordEnd(m.runes(), m.input.Position()))
+	case "ctrl+left", "alt+left", "alt+b":
+		return m.moveTo(wordStart(m.runes(), m.input.Position()))
+	case "ctrl+right", "alt+right", "alt+f":
+		return m.moveTo(wordEnd(m.runes(), m.input.Position()))
 	}
 	return m.updateInput(msg)
+}
+
+func (m *Model) runes() []rune {
+	return []rune(m.input.Value())
+}
+
+// deleteTo deletes the text between the cursor and target.
+func (m *Model) deleteTo(target int) tea.Cmd {
+	s, pos := m.runes(), m.input.Position()
+	from, to := min(pos, target), max(pos, target)
+	return m.edit(string(s[:from])+string(s[to:]), from)
+}
+
+func (m *Model) moveTo(target int) tea.Cmd {
+	return m.edit(m.input.Value(), target)
+}
+
+// edit sets the input to value with the cursor at the rune offset cursor, and
+// reacts to the change like any other edit.
+func (m *Model) edit(value string, cursor int) tea.Cmd {
+	before, head := m.input.Value(), m.head()
+	m.input.SetValue(value)
+	m.input.SetCursor(cursor)
+	return m.afterEdit(before, head)
 }
 
 // quit stops all work in progress and ends the program.
@@ -387,9 +420,7 @@ func (m *Model) acceptCandidate() tea.Cmd {
 	}
 	value, head := m.input.Value(), m.head()
 	newHead := head[:m.comp.Start] + cands[m.selected(len(cands))].Text
-	m.input.SetValue(newHead + value[len(head):])
-	m.input.SetCursor(utf8.RuneCountInString(newHead))
-	return m.afterEdit(value, head)
+	return m.edit(newHead+value[len(head):], utf8.RuneCountInString(newHead))
 }
 
 func (m *Model) startPreview() tea.Cmd {

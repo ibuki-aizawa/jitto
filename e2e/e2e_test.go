@@ -48,6 +48,8 @@ const (
 	keyCtrlN      = "\x0e"
 	keyCtrlP      = "\x10"
 	keyCtrlY      = "\x19"
+	keyCtrlW      = "\x17"
+	keyCtrlLeft   = "\x1b[1;5D"
 
 	helpShown = "Enter: confirm"
 )
@@ -637,6 +639,22 @@ func TestEscClosesCandidates(t *testing.T) {
 	s.typeKeys("i")
 	s.see(" items")
 	s.see("> .i\n")
+}
+
+// The word keys stop at symbols, not only at spaces.
+func TestWordKeys(t *testing.T) {
+	f := newFixture(t)
+	s := f.start(`"{jitto}" data.json`)
+	s.showingDoc()
+	s.typeKeys(".items[0].x")
+	s.see("> .items[0].x")
+	s.send(keyCtrlW)
+	s.see("> .items[0].\n")
+	s.send(keyCtrlW)
+	s.see("> .items[0\n")
+	s.send(keyCtrlLeft)
+	s.typeKeys("Q")
+	s.see("> .items[Q0")
 }
 
 func TestCommandLine(t *testing.T) {
