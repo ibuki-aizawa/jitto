@@ -6,7 +6,24 @@ Go 製のシングルバイナリで、外部の jq は必要ありません。j
 
 ## インストール
 
-winget での配布は準備中です。現時点ではソースからビルドしてください（Go 1.27 以降が必要です）。
+winget での配布は準備中です。
+
+### GitHub Releases からダウンロードする
+
+1. [Releases](https://github.com/ibuki-aizawa/jitto/releases) から `jitto-windows-amd64.exe` をダウンロードします。
+2. 必要に応じて `jitto.exe` に名前を変え、PATH の通ったフォルダーに置きます。
+
+実行ファイルにはコード署名がありません。そのため、ダウンロードしたファイルを初めて実行するときに、発行元が「不明な発行元」と表示されることがあります。続けるには「実行」を選んでください。次回からは表示されません。
+
+ファイルが壊れていないか確かめたいときは、リリースに添付した `SHA256SUMS` と照合してください。
+
+```powershell
+Get-FileHash .\jitto-windows-amd64.exe
+```
+
+### ソースからビルドする
+
+Go 1.27 以降が必要です。
 
 ```powershell
 git clone https://github.com/ibuki-aizawa/jitto.git
