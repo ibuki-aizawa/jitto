@@ -75,6 +75,9 @@ func run(m *testing.M) int {
 
 	// The scenarios decide on color themselves. See TestNoColor.
 	os.Unsetenv("NO_COLOR")
+	// termenv treats any CI variable as "not a terminal" and turns colors off.
+	// CI services set it, but jitto runs in a real console here.
+	os.Unsetenv("CI")
 	return m.Run()
 }
 
