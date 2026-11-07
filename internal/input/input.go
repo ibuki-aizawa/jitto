@@ -70,10 +70,10 @@ func ParseEncoding(name string) (Encoding, error) {
 // documents such as NDJSON yield one element each, and empty input yields none.
 // Numbers are decoded as json.Number so that large integers keep their precision.
 //
-// The input is in enc, unless it starts with a byte order mark: then it is
-// UTF-8 or UTF-16, as the mark says. Windows PowerShell 5.1 writes UTF-16 files
-// with ">". The byte offsets in errors count bytes of the input converted to
-// UTF-8.
+// The input is in enc, unless it starts with a UTF-16 byte order mark, as the
+// files that Windows PowerShell 5.1 writes with ">" do. UTF-8 byte order marks at
+// the start are discarded whatever enc is. The byte offsets in errors count bytes
+// of the input converted to UTF-8.
 //
 // notice is ErrInvalidUTF8 if the input is read as UTF-8 and is not valid UTF-8,
 // and nil otherwise. It does not make the documents unusable, unlike err. If
@@ -129,8 +129,7 @@ func ReadFile(path string, enc Encoding) (docs []any, notice, err error) {
 // input, which it recognizes by its byte order mark, and input in enc. If the
 // input is read as UTF-8, it also returns the checker that sees it go by.
 func toUTF8(br *bufio.Reader, enc Encoding) (io.Reader, *utf8Checker, error) {
-	hadBOM, err := skipBOM(br)
-	if err != nil {
+	if err := skipBOM(br); err != nil {
 		return nil, nil, err
 	}
 	head, err := br.Peek(2)
@@ -143,7 +142,13 @@ func toUTF8(br *bufio.Reader, enc Encoding) (io.Reader, *utf8Checker, error) {
 		order = binary.LittleEndian
 	case bytes.Equal(head, utf16BEBOM):
 		order = binary.BigEndian
-	case enc == ShiftJIS && !hadBOM:
+	case enc == ShiftJIS:
+		// A UTF-8 byte order mark does not count here: Windows PowerShell 5.1 adds
+		// one to the Shift_JIS text it pipes when the console uses the UTF-8 code
+		// page. JSON starts with ASCII, so Shift_JIS input does not start with
+		// these bytes otherwise. UTF-16 marks still count: 0xFE and 0xFF are not
+		// used in Shift_JIS.
+		//
 		// Invalid bytes become U+FFFD, as invalid UTF-8 does when it is decoded.
 		return transform.NewReader(br, japanese.ShiftJIS.NewDecoder()), nil, nil
 	default:
@@ -162,7 +167,7 @@ func toUTF8(br *bufio.Reader, enc Encoding) (io.Reader, *utf8Checker, error) {
 	}
 	// The text itself can start with more byte order marks.
 	out := bufio.NewReader(strings.NewReader(s))
-	if _, err := skipBOM(out); err != nil {
+	if err := skipBOM(out); err != nil {
 		return nil, nil, err
 	}
 	return out, nil, nil
@@ -236,24 +241,21 @@ func decodeUTF16(b []byte, order binary.ByteOrder) (string, error) {
 	return string(utf16.Decode(units)), nil
 }
 
-// skipBOM discards the UTF-8 byte order marks at the start and reports whether
-// there were any. There can be more than one: Windows PowerShell 5.1 writes two
-// to a pipe when $OutputEncoding is [Text.Encoding]::UTF8 and the console uses
-// the UTF-8 code page.
-func skipBOM(br *bufio.Reader) (bool, error) {
-	found := false
+// skipBOM discards the UTF-8 byte order marks at the start. There can be more
+// than one: Windows PowerShell 5.1 writes two to a pipe when $OutputEncoding is
+// [Text.Encoding]::UTF8 and the console uses the UTF-8 code page.
+func skipBOM(br *bufio.Reader) error {
 	for {
 		head, err := br.Peek(len(utf8BOM))
 		if err != nil && !errors.Is(err, io.EOF) {
-			return found, err
+			return err
 		}
 		if !bytes.Equal(head, utf8BOM) {
-			return found, nil
+			return nil
 		}
 		if _, err := br.Discard(len(utf8BOM)); err != nil {
-			return found, err
+			return err
 		}
-		found = true
 	}
 }
 

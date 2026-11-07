@@ -17,7 +17,7 @@ Windows 向けのインタラクティブ jq ツール。jq 式を入力する�
 ## MVP の機能
 
 - ファイル引数（`jitto data.json`）または標準入力（`curl ... | jitto`）から JSON を読み込む
-  - 入力は UTF-8。先頭に BOM があれば UTF-8 / UTF-16 を判別する。`--encoding sjis` で Shift_JIS（CP932）として読む（BOM があれば BOM を優先）
+  - 入力は UTF-8。先頭に BOM があれば UTF-8 / UTF-16 を判別する。`--encoding sjis` で Shift_JIS（CP932）として読む（UTF-16 の BOM があれば BOM を優先。UTF-8 の BOM は PowerShell 5.1 が Shift_JIS にも付けるので、読み飛ばして Shift_JIS として読む）
   - 結果は常に UTF-8 で出力する
 - 上部の入力欄に jq 式を入力すると、下部のペインに結果をリアルタイム表示する
 - 式がエラーのときは、直前の正常な結果を残したままエラーメッセージを表示する

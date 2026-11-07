@@ -53,7 +53,7 @@ jitto --encoding sjis data.json
 
 入力は UTF-8 として読みます。先頭に BOM があるときは、BOM に従って UTF-8 か UTF-16 として読みます。
 
-Shift_JIS の入力は、`--encoding sjis` を付けて読みます（`--encoding=sjis` とも書けます）。名前は `shift_jis`、`sjis`、`cp932`、`windows-31j` のどれでもよく、大文字と小文字は区別しません。Windows で使われる Shift_JIS（コードページ 932）として読むので、①や髙などの機種依存文字も読めます。先頭に BOM があるときは、`--encoding` よりも BOM を優先します。
+Shift_JIS の入力は、`--encoding sjis` を付けて読みます（`--encoding=sjis` とも書けます）。名前は `shift_jis`、`sjis`、`cp932`、`windows-31j` のどれでもよく、大文字と小文字は区別しません。Windows で使われる Shift_JIS（コードページ 932）として読むので、①や髙などの機種依存文字も読めます。先頭に UTF-16 の BOM があるときは、`--encoding` よりも BOM を優先します。UTF-8 の BOM は読み飛ばし、残りを Shift_JIS として読みます（PowerShell 5.1 は、Shift_JIS のパイプにも UTF-8 の BOM を付けることがあるためです）。
 
 結果は、入力の文字コードにかかわらず UTF-8 で出力します。
 
@@ -130,33 +130,39 @@ jq と同じく、キーに日本語などを使うときは `."名前"` のよ�
 - 引用符の中で書きかけのキー（`."名` など）には、候補を出しません。`.` まで入力した時点で、引用符付きの候補が出ます。
 - `if` を `end` まで、`def` を `;` まで書き終えていない間（たとえば `if . then .na`）は、候補を出しません。閉じたあとの部分（`if . then . end | .na`）では、候補が出ます。
 
-## PowerShell 5.1 と日本語
+## PowerShell と日本語
 
-Windows PowerShell 5.1 は、外部コマンドとの間で文字コードを変換します。そのため、日本語を含むデータが jitto に届く前後で壊れることがあります。
+PowerShell のパイプでは、文字コードの変換が 2 回起こります。
 
-| 操作 | 結果 |
-|---|---|
-| `Get-Content -Encoding UTF8 data.json \| jitto` | 日本語が `??` に置き換わる（エラーにならない） |
-| `Get-Content data.json \| jitto` | 文字化けして JSON エラーになることがある |
-| `jitto data.json > out.txt` | 画面は正常だが、ファイルでは文字化けする |
+1. `Get-Content` がファイルを読むとき（`-Encoding` で指定した文字コードとして読む）
+2. 外部コマンドに渡すとき（`$OutputEncoding` の文字コードに変換する）
 
-入力は、パイプではなくファイル引数で渡すのが確実です。出力もパイプで受けるときは、先に文字コードを UTF-8 に設定します。
+どちらかが合っていないと、日本語は jitto に届く前に `??` や `�` に置き換わります。この状態は jitto では元に戻せず、注意も表示されません。
+
+入力は、パイプではなくファイル引数で渡すのが確実です。
+
+```powershell
+jitto data.json                   # UTF-8 のファイル
+jitto --encoding sjis data.json   # Shift_JIS のファイル
+```
+
+パイプで渡すときは、次のようにします。cmd の `type data.json | jitto` は変換が起こらないので、そのまま使えます（Shift_JIS なら `--encoding sjis` を付けます）。
+
+| 環境 | UTF-8 のファイル | Shift_JIS のファイル |
+|---|---|---|
+| PowerShell 7 | `Get-Content data.json \| jitto` | `Get-Content -Encoding 932 data.json \| jitto` |
+| PowerShell 5.1 | 先に `$OutputEncoding = [Text.Encoding]::UTF8` を設定してから `Get-Content -Encoding UTF8 data.json \| jitto` | 先に `$OutputEncoding = [Text.Encoding]::GetEncoding(932)` を設定してから `Get-Content data.json \| jitto --encoding sjis` |
+
+PowerShell 5.1 の既定の `$OutputEncoding` は US-ASCII なので、設定しないと日本語は `??` になります。5.1 の `>` で保存したファイルは BOM 付きの UTF-16 になりますが、jitto はこれもファイル引数で読み込めます。
+
+### 出力
+
+結果は UTF-8 で出力します。PowerShell 5.1 で結果を `>` やパイプで受けると、ファイルでは文字化けします（画面の表示は正常です）。受けるときは、先にコンソールの文字コードも UTF-8 に設定します。
 
 ```powershell
 $OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
 Get-Content -Encoding UTF8 data.json | jitto | Set-Content -Encoding UTF8 result.json
 ```
-
-UTF-8 に設定しない場合は、パイプの文字コードを Shift_JIS にして、`--encoding sjis` で受け取る方法もあります。
-
-```powershell
-$OutputEncoding = [Text.Encoding]::GetEncoding(932)
-Get-Content -Encoding UTF8 data.json | jitto --encoding sjis
-```
-
-なお、5.1 の `>` で保存したファイルは BOM 付きの UTF-16 になります。jitto はこれもファイル引数で読み込めます。
-
-PowerShell 7 と cmd では、この問題は確認していません。
 
 ## ライセンス
 

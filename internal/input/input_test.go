@@ -139,8 +139,11 @@ func TestReadShiftJIS(t *testing.T) {
 		{"half-width katakana", "\"\xb1\"", []any{"ｱ"}},
 		{"ascii", `{"a":[1,true]}`, []any{map[string]any{"a": []any{json.Number("1"), true}}}},
 		{"invalid bytes", "\"\x81\"", []any{"�"}},
-		// A byte order mark wins over the encoding.
-		{"utf-8 bom", "\xEF\xBB\xBF\"名前\"", []any{"名前"}},
+		// Windows PowerShell 5.1 adds UTF-8 byte order marks to the Shift_JIS text it
+		// pipes when the console uses the UTF-8 code page. They do not make it UTF-8.
+		{"utf-8 bom", "\xEF\xBB\xBF\"\x96\xbc\x91\x4f\"", []any{"名前"}},
+		{"two utf-8 boms", "\xEF\xBB\xBF\xEF\xBB\xBF\"\x96\xbc\x91\x4f\"", []any{"名前"}},
+		// A UTF-16 byte order mark wins over the encoding.
 		{"utf-16 bom", utf16Bytes(`"名前"`, binary.LittleEndian), []any{"名前"}},
 	}
 	for _, tt := range tests {
@@ -208,7 +211,8 @@ func TestReadNotice(t *testing.T) {
 		{"replacement character", `"��"`, UTF8, false},
 		{"shift_jis read as utf-8", sjis, UTF8, true},
 		{"shift_jis read as shift_jis", sjis, ShiftJIS, false},
-		{"invalid utf-8 after a bom", "\xEF\xBB\xBF" + sjis, ShiftJIS, true},
+		{"shift_jis after a utf-8 bom", "\xEF\xBB\xBF" + sjis, ShiftJIS, false},
+		{"invalid utf-8 after a utf-8 bom", "\xEF\xBB\xBF" + sjis, UTF8, true},
 		{"unpaired surrogate in utf-16", "\xFF\xFE\x22\x00\x00\xD8\x22\x00", UTF8, false},
 		{"invalid in the second document", "1\n" + sjis, UTF8, true},
 	}
