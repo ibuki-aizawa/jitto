@@ -43,6 +43,11 @@ const (
 	keyPgDn       = "\x1b[6~"
 	keyShiftRight = "\x1b[1;2C"
 	keyShiftLeft  = "\x1b[1;2D"
+	keyTab        = "\t"
+	keyEsc        = "\x1b"
+	keyCtrlN      = "\x0e"
+	keyCtrlP      = "\x10"
+	keyCtrlY      = "\x19"
 
 	helpShown = "Enter: confirm"
 )
@@ -546,6 +551,92 @@ func TestResize(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.waitFor("line fills 110 columns", screenWait, func(string) bool { return rowWidth() == 110 })
+}
+
+// showingCandidates types "." and waits for the keys of the sample input to be
+// listed over the top rows of the pane, below the expression.
+func (s *session) showingCandidates() {
+	s.t.Helper()
+	s.showingDoc()
+	s.typeKeys(".")
+	want := []string{"{  a", "   items", "   long", `   "名前"`}
+	s.waitFor("candidates are listed", screenWait, func(string) bool {
+		rows := s.scr.rows()
+		for i, prefix := range want {
+			if !strings.HasPrefix(rows[2+i], prefix) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+// waitSelected waits for the candidate on the given row of the list to be the
+// only one in reverse video.
+func (s *session) waitSelected(row int) {
+	s.t.Helper()
+	s.waitFor(fmt.Sprintf("candidate %d is selected", row), screenWait, func(string) bool {
+		for i := range 4 {
+			if reverse, _ := s.scr.styled(2 + i); reverse != (i == row) {
+				return false
+			}
+		}
+		return true
+	})
+}
+
+func TestCompletion(t *testing.T) {
+	f := newFixture(t)
+	s := f.start(`cmd /c ""{jitto}" data.json > out.txt"`)
+	s.showingCandidates()
+	s.waitSelected(0)
+
+	s.send(keyCtrlN)
+	s.send(keyCtrlN)
+	s.waitSelected(2)
+	s.send(keyCtrlP)
+	s.waitSelected(1)
+
+	s.send(keyTab)
+	s.see("> .items")
+	s.see("  0,")
+	s.gone("   long")
+	s.send(keyEnter)
+	s.wantExit(0)
+	if got := f.read("out.txt"); !strings.HasPrefix(got, "[\n  0,\n  1,\n") {
+		t.Errorf("stdout is %q", got)
+	}
+	s.wantConsoleContains(".items")
+}
+
+// Ctrl+Y and quoting, with the keys read from the console that replaces the pipe.
+func TestCompletionWithPipedInput(t *testing.T) {
+	f := newFixture(t)
+	s := f.start(`cmd /c "type data.json | "{jitto}" > out.txt"`)
+	s.showingCandidates()
+	s.send(keyCtrlP) // Wraps around to the last candidate.
+	s.waitSelected(3)
+	s.send(keyCtrlY)
+	s.see(`> ."名前"`)
+	s.see(`"太郎"`)
+	s.gone(`"a": "one"`)
+	s.send(keyEnter)
+	s.wantExit(0)
+	if got := f.read("out.txt"); got != "\"太郎\"\n" {
+		t.Errorf("stdout is %q", got)
+	}
+}
+
+func TestEscClosesCandidates(t *testing.T) {
+	f := newFixture(t)
+	s := f.start(`"{jitto}" data.json`)
+	s.showingCandidates()
+	s.send(keyEsc)
+	s.gone("   items")
+	s.send(keyTab) // Inserts nothing while the list is closed.
+	s.typeKeys("i")
+	s.see(" items")
+	s.see("> .i\n")
 }
 
 func TestCommandLine(t *testing.T) {
