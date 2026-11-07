@@ -674,8 +674,32 @@ func TestCandidatesAppearUnderTheExpression(t *testing.T) {
 			t.Errorf("row %d is %q, want it to start with %q", i, lines[i], row)
 		}
 	}
-	if !strings.Contains(lines[0], "\x1b[7m") {
-		t.Errorf("first candidate is not selected: %q", lines[0])
+	// Nothing is selected until Ctrl+N or Ctrl+P.
+	for i := range 3 {
+		if strings.Contains(lines[i], "\x1b[7m") {
+			t.Errorf("row %d is selected: %q", i, lines[i])
+		}
+	}
+}
+
+func TestListIsBelowThePartialKey(t *testing.T) {
+	h := newHarness(t, map[string]any{"items": map[string]any{"alpha": nil}})
+	h.start()
+	h.typeText(".items.al")
+	// The text of the list starts in the column of "al".
+	keyCol := lipgloss.Width(prompt + ".items.")
+	if got := strings.Index(stripANSI(h.paneLines()[0]), " alpha "); got != keyCol-1 {
+		t.Errorf("list at column %d, want %d:\n%s", got, keyCol-1, h.m.View())
+	}
+}
+
+func TestListMovesLeftToFit(t *testing.T) {
+	h := newHarness(t, map[string]any{"alpha": nil})
+	h.start()
+	// Below the key, the list would end past column 80.
+	h.typeText(strings.Repeat(" ", 75) + ".")
+	if got := strings.Index(stripANSI(h.paneLines()[0]), " alpha "); got != 80-len(" alpha ") {
+		t.Errorf("list at column %d, want it at the right edge:\n%s", got, h.m.View())
 	}
 }
 
@@ -739,20 +763,157 @@ func TestTabWithoutCandidatesDoesNothing(t *testing.T) {
 	h.wantInput(".x", 2)
 }
 
-func TestCtrlNAndCtrlPSelectCandidates(t *testing.T) {
+// wantSelectedRow checks that row, and no other row of the list, is selected.
+// -1 means none.
+func (h *harness) wantSelectedRow(row int) {
+	h.t.Helper()
+	for i, line := range h.paneLines()[:maxCandidateRows] {
+		if got := strings.Contains(line, "\x1b[7m"); got != (i == row) {
+			h.t.Errorf("row %d selected: %v, want %v: %q", i, got, i == row, line)
+		}
+	}
+}
+
+func TestCtrlNAndCtrlPCycleThroughCandidatesAndTheTypedText(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	steps := []struct {
+		key   tea.KeyType
+		input string
+		row   int
+	}{
+		{tea.KeyCtrlN, ".alpha", 0},
+		{tea.KeyCtrlN, ".beta", 1},
+		{tea.KeyCtrlN, ".gamma", 2},
+		{tea.KeyCtrlN, ".", -1}, // Back to the typed text.
+		{tea.KeyCtrlN, ".alpha", 0},
+		{tea.KeyCtrlP, ".", -1},
+		{tea.KeyCtrlP, ".gamma", 2},
+	}
+	for _, s := range steps {
+		h.press(s.key)
+		h.wantInput(s.input, len(s.input))
+		h.wantSelectedRow(s.row)
+		// The list stays whole although the input changed.
+		h.wantCandidates("alpha", "beta", "gamma")
+	}
+}
+
+func TestCyclingPreviewsTheCandidate(t *testing.T) {
 	h := newHarness(t, keysDoc())
 	h.start()
 	h.typeText(".")
 	h.press(tea.KeyCtrlN)
 	h.press(tea.KeyCtrlN)
-	if !strings.Contains(h.paneLines()[2], "\x1b[7m") {
-		t.Errorf("third candidate is not selected: %q", h.paneLines()[2])
+	if got := h.m.output; got != "2\n" {
+		t.Errorf("preview is %q, want the result of .beta", got)
 	}
-	h.press(tea.KeyCtrlN) // Wraps to the first.
-	h.press(tea.KeyCtrlP) // Wraps to the last.
-	h.press(tea.KeyCtrlP)
+}
+
+func TestCyclingKeepsTheTextAfterTheCursor(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".g + 1")
+	for range 4 {
+		h.press(tea.KeyLeft)
+	}
+	h.press(tea.KeyCtrlN)
+	h.wantInput(".gamma + 1", 6)
+	h.wantPane("4")
+	h.press(tea.KeyCtrlN)
+	h.wantInput(".g + 1", 2)
+}
+
+func TestEnterWhileCyclingConfirmsTheCandidate(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	// Enter right away, before the preview of the candidate arrives.
+	h.send(tea.KeyMsg{Type: tea.KeyCtrlN})
+	h.press(tea.KeyEnter)
+	h.wantOutcome("1\n", ".alpha")
+}
+
+func TestTabEndsTheCycleWithTheCandidate(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	h.press(tea.KeyCtrlN)
+	h.press(tea.KeyCtrlN)
 	h.press(tea.KeyTab)
 	h.wantInput(".beta", 5)
+	h.wantCandidates()
+	h.wantSelectedRow(-1)
+}
+
+func TestTabBackAtTheTypedTextInsertsTheFirst(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	h.press(tea.KeyCtrlN)
+	h.press(tea.KeyCtrlP)
+	h.press(tea.KeyTab)
+	h.wantInput(".alpha", 6)
+}
+
+func TestEscWhileCyclingPutsBackTheTypedText(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".b + 1")
+	for range 4 {
+		h.press(tea.KeyLeft)
+	}
+	h.press(tea.KeyCtrlN)
+	h.wantInput(".beta + 1", 5)
+	if got := h.m.output; got != "3\n" {
+		t.Errorf("preview is %q, want the result of .beta + 1", got)
+	}
+	h.press(tea.KeyEsc)
+	h.wantInput(".b + 1", 2)
+	h.wantCandidates()
+	if got := h.m.output; got != "1\n" {
+		t.Errorf("preview is %q, want the result of .b + 1", got)
+	}
+}
+
+func TestEditingEndsTheCycle(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	h.press(tea.KeyCtrlN)
+	h.press(tea.KeyBackspace)
+	h.wantInput(".alph", 5)
+	// The candidates are for the edited text again.
+	h.wantCandidates("alpha")
+	h.wantSelectedRow(-1)
+	h.press(tea.KeyCtrlN)
+	h.wantInput(".alpha", 6)
+}
+
+// Windows reports pressing Ctrl on its own as a key, before the N of each Ctrl+N.
+func TestKeysThatChangeNothingKeepTheCycle(t *testing.T) {
+	ctrlAlone := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{0}}
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	h.press(tea.KeyCtrlN)
+	for _, k := range []tea.KeyMsg{ctrlAlone, {Type: tea.KeyF5}, {Type: tea.KeyEnd}} {
+		h.settle(h.send(k))
+	}
+	h.wantInput(".alpha", 6)
+	h.settle(h.send(ctrlAlone))
+	h.press(tea.KeyCtrlN)
+	h.wantInput(".beta", 5)
+	h.wantSelectedRow(1)
+}
+
+func TestCtrlNWithoutCandidatesDoesNothing(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".x")
+	h.press(tea.KeyCtrlN)
+	h.wantInput(".x", 2)
 }
 
 func TestSelectionScrollsTheList(t *testing.T) {
@@ -764,10 +925,10 @@ func TestSelectionScrollsTheList(t *testing.T) {
 	h.start()
 	h.typeText(".")
 	lines := h.paneLines()
-	if got := stripANSI(lines[maxCandidateRows]); !strings.HasPrefix(got, "   1/12") {
+	if got := stripANSI(lines[maxCandidateRows]); !strings.HasPrefix(got, "   -/12") {
 		t.Errorf("counter row is %q", got)
 	}
-	for range 7 {
+	for range 8 {
 		h.press(tea.KeyCtrlN)
 	}
 	lines = h.paneLines()

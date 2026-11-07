@@ -574,7 +574,7 @@ func (s *session) showingCandidates() {
 }
 
 // waitSelected waits for the candidate on the given row of the list to be the
-// only one in reverse video.
+// only one in reverse video. -1 means none.
 func (s *session) waitSelected(row int) {
 	s.t.Helper()
 	s.waitFor(fmt.Sprintf("candidate %d is selected", row), screenWait, func(string) bool {
@@ -591,18 +591,30 @@ func TestCompletion(t *testing.T) {
 	f := newFixture(t)
 	s := f.start(`cmd /c ""{jitto}" data.json > out.txt"`)
 	s.showingCandidates()
+	s.waitSelected(-1)
+
+	// Ctrl+N writes each candidate into the input, and the pane previews it.
+	s.send(keyCtrlN)
 	s.waitSelected(0)
-
+	s.see("> .a\n")
 	s.send(keyCtrlN)
-	s.send(keyCtrlN)
-	s.waitSelected(2)
-	s.send(keyCtrlP)
 	s.waitSelected(1)
+	s.see("> .items\n")
+	// The list covers the first rows of the result, so look below it.
+	s.waitFor("preview of .items", screenWait, func(string) bool { return s.scr.rows()[7] == "  4," })
 
+	// Ctrl+P goes back through the first candidate to the typed text.
+	s.send(keyCtrlP)
+	s.send(keyCtrlP)
+	s.waitSelected(-1)
+	s.see("> .\n")
+
+	s.send(keyCtrlN)
+	s.send(keyCtrlN)
+	s.waitSelected(1)
 	s.send(keyTab)
-	s.see("> .items")
-	s.see("  0,")
 	s.gone("   long")
+	s.see("> .items\n")
 	s.send(keyEnter)
 	s.wantExit(0)
 	if got := f.read("out.txt"); !strings.HasPrefix(got, "[\n  0,\n  1,\n") {

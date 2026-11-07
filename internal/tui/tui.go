@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -140,11 +141,27 @@ type Model struct {
 	compCancel context.CancelFunc
 	// compClosed hides the candidates until the text before the cursor changes.
 	compClosed bool
-	// compSel is the index of the selected candidate, and compTop the index of the
-	// first one on screen.
-	compSel, compTop int
+	// cycle is set while Ctrl+N and Ctrl+P go through the candidates.
+	cycle *cycle
+	// compTop is the index of the first candidate on screen.
+	compTop int
 
 	confirmed bool
+}
+
+// cycle is the state while Ctrl+N and Ctrl+P go through the candidates, like
+// completion in Vim. Each step writes a candidate into the input, so the pane
+// previews it and Enter confirms what is on screen. The stops are the candidates
+// and, between the last and the first, the text as the user typed it.
+type cycle struct {
+	// value and head are the input and the text before the cursor as typed.
+	value, head string
+	// start is the byte offset of the partial key in head.
+	start int
+	// cands stay fixed while cycling, even though the input changes.
+	cands []eval.Candidate
+	// sel is the index of the candidate in the input, or -1 for the typed text.
+	sel int
 }
 
 // New returns a model that evaluates expressions against docs.
@@ -260,14 +277,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	case "tab", "ctrl+y":
 		return m.acceptCandidate()
 	case "ctrl+n":
-		m.moveSelection(1)
-		return nil
+		return m.cycleCandidates(1)
 	case "ctrl+p":
-		m.moveSelection(-1)
-		return nil
+		return m.cycleCandidates(-1)
 	case "esc":
-		m.compClosed = true
-		return nil
+		return m.closeCandidates()
+	}
+
+	switch msg.String() {
 	// These replace textinput's word keys. See word.go.
 	case "ctrl+w", "alt+backspace":
 		return m.deleteTo(wordStart(m.runes(), m.input.Position()))
@@ -299,10 +316,17 @@ func (m *Model) moveTo(target int) tea.Cmd {
 // edit sets the input to value with the cursor at the rune offset cursor, and
 // reacts to the change like any other edit.
 func (m *Model) edit(value string, cursor int) tea.Cmd {
-	before, head := m.input.Value(), m.head()
+	before, head := m.setInput(value, cursor)
+	return m.afterEdit(before, head)
+}
+
+// setInput sets the input and returns the value and the text before the cursor
+// it had.
+func (m *Model) setInput(value string, cursor int) (before, head string) {
+	before, head = m.input.Value(), m.head()
 	m.input.SetValue(value)
 	m.input.SetCursor(cursor)
-	return m.afterEdit(before, head)
+	return before, head
 }
 
 // quit stops all work in progress and ends the program.
@@ -335,18 +359,32 @@ func (m *Model) updateInput(msg tea.Msg) tea.Cmd {
 }
 
 // afterEdit schedules a preview if the expression changed from value, and new
-// candidates if the text before the cursor changed from head. Editing also
-// abandons any evaluation in progress, including the one started by Enter.
+// candidates if the text before the cursor changed from head.
+//
+// Any such change ends the cycle and keeps the candidate in the input, as in
+// Vim. Keys that change nothing do not: Windows reports pressing Ctrl on its own
+// as a key, so every Ctrl+N would end the cycle it is part of.
 func (m *Model) afterEdit(value, head string) tea.Cmd {
-	var cmds []tea.Cmd
-	if m.input.Value() != value {
-		seq := m.nextRequest(stateEvaluating)
-		cmds = append(cmds, tea.Tick(m.debounce, func(time.Time) tea.Msg { return debounceMsg{seq: seq} }))
+	cmd := m.schedulePreview(value)
+	if m.head() == head {
+		if m.input.Value() != value {
+			m.cycle = nil
+		}
+		return cmd
 	}
-	if m.head() != head {
-		cmds = append(cmds, m.requestCompletion())
+	m.cycle = nil
+	return tea.Batch(cmd, m.requestCompletion())
+}
+
+// schedulePreview evaluates the expression after the debounce if it changed
+// from value. A change also abandons any evaluation in progress, including the
+// one started by Enter.
+func (m *Model) schedulePreview(value string) tea.Cmd {
+	if m.input.Value() == value {
+		return nil
 	}
-	return tea.Batch(cmds...)
+	seq := m.nextRequest(stateEvaluating)
+	return tea.Tick(m.debounce, func(time.Time) tea.Msg { return debounceMsg{seq: seq} })
 }
 
 // head returns the expression up to the cursor.
@@ -361,7 +399,7 @@ func (m *Model) requestCompletion() tea.Cmd {
 	m.stopCompletion()
 	m.compSeq++
 	m.compClosed = false
-	m.compSel, m.compTop = 0, 0
+	m.compTop = 0
 	seq := m.compSeq
 	return tea.Tick(m.debounce, func(time.Time) tea.Msg { return completeDebounceMsg{seq: seq} })
 }
@@ -384,43 +422,93 @@ func (m *Model) stopCompletion() {
 
 // candidates returns the candidates on screen.
 func (m *Model) candidates() []eval.Candidate {
+	if m.cycle != nil {
+		return m.cycle.cands
+	}
 	if m.compClosed {
 		return nil
 	}
 	return m.comp.Narrow(m.head())
 }
 
-// selected returns the index of the selected candidate among n. The list can
-// shrink after the selection was made.
-func (m *Model) selected(n int) int {
-	return min(m.compSel, n-1)
+// selected returns the index of the candidate in the input while cycling, and
+// -1 otherwise.
+func (m *Model) selected() int {
+	if m.cycle == nil {
+		return -1
+	}
+	return m.cycle.sel
 }
 
-// moveSelection selects the candidate delta rows away, wrapping around.
-func (m *Model) moveSelection(delta int) {
-	n := len(m.candidates())
-	if n == 0 {
-		return
+// keyStart returns the text before the cursor and the offset of the partial key
+// in it, as they were before any candidate was written into the input.
+func (m *Model) keyStart() (head string, start int) {
+	if m.cycle != nil {
+		return m.cycle.head, m.cycle.start
 	}
-	m.compSel = (m.selected(n) + delta + n) % n
-	if m.compSel < m.compTop {
-		m.compTop = m.compSel
-	}
-	if m.compSel >= m.compTop+maxCandidateRows {
-		m.compTop = m.compSel - maxCandidateRows + 1
-	}
+	return m.head(), m.comp.Start
 }
 
-// acceptCandidate replaces the partial key with the selected candidate and moves
-// the cursor after it. The text after the cursor stays.
+// cycleCandidates writes the candidate delta stops away into the input. The
+// first step starts the cycle from the typed text.
+func (m *Model) cycleCandidates(delta int) tea.Cmd {
+	if m.cycle == nil {
+		cands := m.candidates()
+		if len(cands) == 0 {
+			return nil
+		}
+		// Drop the pending request: its candidates must not replace the list.
+		m.stopCompletion()
+		m.compSeq++
+		m.cycle = &cycle{value: m.input.Value(), head: m.head(), start: m.comp.Start, cands: cands, sel: -1}
+		m.compTop = 0
+	}
+	c := m.cycle
+	stops := len(c.cands) + 1
+	c.sel = (c.sel+1+delta+stops)%stops - 1
+	if c.sel >= 0 {
+		m.compTop = min(m.compTop, c.sel)
+		m.compTop = max(m.compTop, c.sel-maxCandidateRows+1)
+	}
+
+	head := c.head
+	if c.sel >= 0 {
+		head = c.head[:c.start] + c.cands[c.sel].Text
+	}
+	// Only the preview follows: the cycle and the list stay.
+	before, _ := m.setInput(head+c.value[len(c.head):], utf8.RuneCountInString(head))
+	return m.schedulePreview(before)
+}
+
+// acceptCandidate ends the cycle with the candidate in the input. Outside a
+// cycle, or back at the typed text, it writes the first candidate. The cursor
+// ends up after the candidate, and the text after the cursor stays.
 func (m *Model) acceptCandidate() tea.Cmd {
+	if c := m.cycle; c != nil {
+		m.cycle = nil
+		if c.sel >= 0 {
+			return m.requestCompletion()
+		}
+	}
 	cands := m.candidates()
 	if len(cands) == 0 {
 		return nil
 	}
 	value, head := m.input.Value(), m.head()
-	newHead := head[:m.comp.Start] + cands[m.selected(len(cands))].Text
+	newHead := head[:m.comp.Start] + cands[0].Text
 	return m.edit(newHead+value[len(head):], utf8.RuneCountInString(newHead))
+}
+
+// closeCandidates hides the list until the next edit. While cycling, it also
+// puts back the text as typed.
+func (m *Model) closeCandidates() tea.Cmd {
+	var cmd tea.Cmd
+	if c := m.cycle; c != nil {
+		m.cycle = nil
+		cmd = m.edit(c.value, utf8.RuneCountInString(c.head))
+	}
+	m.compClosed = true
+	return cmd
 }
 
 func (m *Model) startPreview() tea.Cmd {
@@ -519,15 +607,15 @@ func (m *Model) View() string {
 	return m.input.View() + "\n" + m.statusLine() + "\n" + m.paneView()
 }
 
-// paneView draws the candidate list over the top rows of the pane, lined up with
-// the start of the expression.
+// paneView draws the candidate list over the top rows of the pane, below the
+// partial key, so that a short result at the left stays visible.
 func (m *Model) paneView() string {
 	view := m.pane.View()
 	box, boxWidth := m.candidateBox()
 	if len(box) == 0 {
 		return view
 	}
-	col := lipgloss.Width(prompt)
+	col := m.listColumn(boxWidth)
 	lines := strings.Split(view, "\n")
 	for i, row := range box {
 		if i >= len(lines) {
@@ -540,24 +628,41 @@ func (m *Model) paneView() string {
 	return strings.Join(lines, "\n")
 }
 
+// listColumn returns the column of a list boxWidth wide: its text starts below
+// the partial key, and the list moves left as far as it must to fit.
+//
+// The column assumes that the input shows the expression from its start. When a
+// long expression scrolls the input, the key is further left on screen, and the
+// list ends up at the right edge instead.
+func (m *Model) listColumn(boxWidth int) int {
+	head, start := m.keyStart()
+	// The box has one column of padding before the text.
+	col := lipgloss.Width(prompt) + lipgloss.Width(head[:start]) - 1
+	return max(min(col, m.width-boxWidth), 0)
+}
+
 // candidateBox renders the rows of the candidate list and returns their width.
 // If there are more candidates than rows, a last row shows the position in the
 // list.
 func (m *Model) candidateBox() ([]string, int) {
 	cands := m.candidates()
 	// One column of padding on each side of the text.
-	textWidth := m.width - lipgloss.Width(prompt) - 2
+	textWidth := m.width - 2
 	rows := min(len(cands), maxCandidateRows, m.pane.Height)
 	if rows == 0 || textWidth < len(ellipsis)+1 {
 		return nil, 0
 	}
-	sel := m.selected(len(cands))
-	top := min(max(m.compTop, sel-rows+1), sel, len(cands)-rows)
+	sel := m.selected()
+	top := min(max(m.compTop, sel-rows+1, 0), len(cands)-rows)
 	shown := cands[top : top+rows]
 
 	counter := ""
 	if len(cands) > rows && rows < m.pane.Height {
-		counter = fmt.Sprintf("%d/%d", sel+1, len(cands))
+		pos := "-"
+		if sel >= 0 {
+			pos = strconv.Itoa(sel + 1)
+		}
+		counter = pos + "/" + strconv.Itoa(len(cands))
 	}
 	width := lipgloss.Width(counter)
 	for _, c := range shown {
