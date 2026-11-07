@@ -389,6 +389,20 @@ func TestPowerShell51(t *testing.T) {
 		}
 	})
 
+	// ">" writes UTF-16 LE with a byte order mark.
+	t.Run("file saved with >", func(t *testing.T) {
+		f := newFixture(t)
+		s := f.start(`powershell -NoProfile -Command "Get-Content -Raw -Encoding UTF8 data.json > saved.json; & '{jitto}' saved.json; exit $LASTEXITCODE"`)
+		s.showingDoc()
+		s.typeKeys(`."名前"`)
+		s.see(`"太郎"`)
+		s.send(keyEnter)
+		s.wantExit(0)
+		if got := decodeUTF16LE(t, f.read("saved.json")); !strings.Contains(got, "太郎") {
+			t.Fatalf("saved file is %q", got)
+		}
+	})
+
 	// With the UTF-8 code page and this setting, 5.1 starts the pipe with two UTF-8
 	// byte order marks.
 	t.Run("two byte order marks", func(t *testing.T) {
@@ -697,13 +711,13 @@ func TestCommandLine(t *testing.T) {
 		{"missing file", `"{jitto}" missing.json`, 1, "missing.json"},
 		{"invalid JSON in a file", `"{jitto}" bad.json`, 1, "invalid JSON"},
 		{"invalid JSON on stdin", `cmd /c "type bad.json | "{jitto}""`, 1, "invalid JSON"},
-		{"UTF-16 file", `"{jitto}" utf16.json`, 1, "UTF-16"},
+		{"odd UTF-16 file", `"{jitto}" utf16.json`, 1, "odd number of bytes"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t)
 			f.write("bad.json", `{"a":}`)
-			f.write("utf16.json", "\xff\xfe1\x00")
+			f.write("utf16.json", "\xff\xfe1\x00\x00")
 			s := f.start(tt.cmd)
 			s.wantExit(tt.code)
 			s.wantConsoleContains(tt.want)
@@ -717,6 +731,26 @@ func TestStderrMustBeATerminal(t *testing.T) {
 	s.wantExit(1)
 	if got := f.read("err.txt"); !strings.Contains(got, "stderr must be a terminal") {
 		t.Errorf("stderr is %q", got)
+	}
+}
+
+func TestUTF16File(t *testing.T) {
+	f := newFixture(t)
+	units := utf16.Encode(append([]rune{0xFEFF}, []rune(`{"名前":"太郎"}`)...))
+	b := make([]byte, 0, 2*len(units))
+	for _, u := range units {
+		b = append(b, byte(u), byte(u>>8))
+	}
+	f.write("utf16.json", string(b))
+
+	s := f.start(`cmd /c ""{jitto}" utf16.json > out.txt"`)
+	s.see(`"名前": "太郎"`)
+	s.typeKeys(`."名前"`)
+	s.gone(`"名前": "太郎"`)
+	s.send(keyEnter)
+	s.wantExit(0)
+	if got := f.read("out.txt"); got != "\"太郎\"\n" {
+		t.Errorf("stdout is %q", got)
 	}
 }
 

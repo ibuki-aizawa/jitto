@@ -107,7 +107,7 @@ jq と異なる点の多くは gojq の仕様によるものです。
   - `debug`、`stderr`、`input_filename`
   - `input`、`inputs`
 - `-r` などのコマンドラインオプションはありません。
-- UTF-16 のファイルは読めません。UTF-8 に変換してください。UTF-8 の BOM は問題ありません。
+- 入力は UTF-8 か、BOM 付きの UTF-16 だけを読めます。BOM のない UTF-16 は読めないので、UTF-8 に変換してください。
 - 10000 段を超えてネストした結果は表示できません。
 
 jq と同じく、キーに日本語などを使うときは `."名前"` のように引用符で囲みます。`.名前` と入力すると、エラーと一緒に正しい書き方を表示します。
@@ -135,7 +135,7 @@ $OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
 Get-Content -Encoding UTF8 data.json | jitto | Set-Content -Encoding UTF8 result.json
 ```
 
-なお、5.1 の `>` で保存したファイルは UTF-16 になるため、jitto では読み込めません。
+なお、5.1 の `>` で保存したファイルは BOM 付きの UTF-16 になります。jitto はこれもファイル引数で読み込めます。
 
 PowerShell 7 と cmd では、この問題は確認していません。
 

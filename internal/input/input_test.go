@@ -1,6 +1,7 @@
 package input
 
 import (
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"testing/iotest"
+	"unicode/utf16"
 )
 
 func TestRead(t *testing.T) {
@@ -74,23 +76,70 @@ func TestReadInvalidJSON(t *testing.T) {
 	}
 }
 
+// bom is U+FEFF, which Go source cannot contain as is.
+var bom = string(rune(0xFEFF))
+
+// utf16Bytes encodes s as UTF-16 with a byte order mark.
+func utf16Bytes(s string, order binary.AppendByteOrder) string {
+	b := order.AppendUint16(nil, 0xFEFF)
+	for _, u := range utf16.Encode([]rune(s)) {
+		b = order.AppendUint16(b, u)
+	}
+	return string(b)
+}
+
 func TestReadUTF16(t *testing.T) {
+	japanese := map[string]any{"名前": "太郎", "emoji": "😀"}
 	tests := []struct {
 		name  string
 		input string
+		want  []any
 	}{
-		{"little endian", "\xFF\xFE1\x00"},
-		{"big endian", "\xFE\xFF\x001"},
-		{"bom only", "\xFF\xFE"},
-		{"after a utf-8 bom", "\xEF\xBB\xBF\xFF\xFE1\x00"},
+		{"little endian", utf16Bytes(`{"名前":"太郎","emoji":"😀"}`, binary.LittleEndian), []any{japanese}},
+		{"big endian", utf16Bytes(`{"名前":"太郎","emoji":"😀"}`, binary.BigEndian), []any{japanese}},
+		// What Windows PowerShell 5.1 writes with ">".
+		{"crlf separated", utf16Bytes("1\r\n2\r\n", binary.LittleEndian), []any{json.Number("1"), json.Number("2")}},
+		{"bom only", "\xFF\xFE", []any{}},
+		{"empty after the bom", utf16Bytes("", binary.BigEndian), []any{}},
+		{"more boms in the text", utf16Bytes(bom+bom+"1", binary.LittleEndian), []any{json.Number("1")}},
+		{"after a utf-8 bom", "\xEF\xBB\xBF" + utf16Bytes("1", binary.LittleEndian), []any{json.Number("1")}},
+		{"unpaired surrogate", "\xFF\xFE" + "\x22\x00" + "\x00\xD8" + "\x22\x00", []any{"�"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := Read(strings.NewReader(tt.input)); !errors.Is(err, ErrUTF16) {
-				t.Errorf("got error %v, want ErrUTF16", err)
+			got, err := Read(strings.NewReader(tt.input))
+			if err != nil {
+				t.Fatalf("Read: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %#v, want %#v", got, tt.want)
 			}
 		})
 	}
+}
+
+func TestReadUTF16Errors(t *testing.T) {
+	t.Run("odd number of bytes", func(t *testing.T) {
+		_, err := Read(strings.NewReader(utf16Bytes("1", binary.LittleEndian) + "\x00"))
+		if !errors.Is(err, ErrOddUTF16) {
+			t.Errorf("got error %v, want ErrOddUTF16", err)
+		}
+	})
+	t.Run("invalid JSON", func(t *testing.T) {
+		// The offset is the same as for the UTF-8 input.
+		_, utf8Err := Read(strings.NewReader(`{"名":}`))
+		_, err := Read(strings.NewReader(utf16Bytes(`{"名":}`, binary.LittleEndian)))
+		if err == nil || utf8Err == nil || err.Error() != utf8Err.Error() {
+			t.Errorf("got error %v, want %v", err, utf8Err)
+		}
+	})
+	t.Run("read error", func(t *testing.T) {
+		wantErr := errors.New("disk failure")
+		_, err := Read(io.MultiReader(strings.NewReader("\xFF\xFE1\x00"), iotest.ErrReader(wantErr)))
+		if !errors.Is(err, wantErr) {
+			t.Errorf("got error %v, want %v", err, wantErr)
+		}
+	})
 }
 
 func TestReadPropagatesReaderError(t *testing.T) {
