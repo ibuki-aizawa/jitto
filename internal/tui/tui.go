@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 	"unicode"
@@ -21,6 +22,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/ibuki-aizawa/jitto/internal/eval"
 )
@@ -117,6 +119,7 @@ func New(docs []any) *Model {
 	input.Prompt = prompt
 	input.Placeholder = "."
 	input.Cursor.SetMode(cursor.CursorStatic)
+	input.Cursor.Style = cursorStyle()
 	input.Focus()
 
 	pane := viewport.New(0, 0)
@@ -141,6 +144,16 @@ func New(docs []any) *Model {
 		noteStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("11")),
 		helpStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
 	}
+}
+
+// cursorStyle returns a style that can always render the cursor, which is drawn in
+// reverse video. With NO_COLOR set, the default renderer drops every attribute, not
+// only colors, and the cursor would disappear.
+func cursorStyle() lipgloss.Style {
+	// This renderer only decides which escape sequences to produce. It writes nothing.
+	r := lipgloss.NewRenderer(io.Discard)
+	r.SetColorProfile(termenv.ANSI)
+	return lipgloss.NewStyle().Renderer(r)
 }
 
 // Outcome returns the complete output and the expression if the user confirmed

@@ -615,6 +615,16 @@ func TestErrorIsOneSanitizedLine(t *testing.T) {
 	}
 }
 
+func TestCursorIsVisibleWithoutColorSupport(t *testing.T) {
+	// Tests have no terminal, so the default renderer drops all attributes, the same
+	// as it does with NO_COLOR set.
+	h := newHarness(t, doc())
+	h.start()
+	if got := h.m.input.View(); !strings.Contains(got, "\x1b[7m") {
+		t.Errorf("input has no reverse video cursor: %q", got)
+	}
+}
+
 func TestOutcomeBeforeConfirmation(t *testing.T) {
 	h := newHarness(t, doc())
 	h.start()
