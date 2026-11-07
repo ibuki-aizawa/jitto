@@ -68,10 +68,58 @@ func TestComplete(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := Complete(context.Background(), tt.text, tt.docs)
-			if !reflect.DeepEqual(got.Candidates, tt.want) {
-				t.Errorf("got %q, want %q", got.Candidates, tt.want)
+			if texts := candidateTexts(got.Candidates); !reflect.DeepEqual(texts, tt.want) {
+				t.Errorf("got %q, want %q", texts, tt.want)
 			}
 		})
+	}
+}
+
+func candidateTexts(cands []Candidate) []string {
+	var texts []string
+	for _, c := range cands {
+		texts = append(texts, c.Text)
+	}
+	return texts
+}
+
+func TestCompleteCandidateKeepsKey(t *testing.T) {
+	got := Complete(context.Background(), ".", []any{map[string]any{"名前": nil, "id": nil}})
+	want := []Candidate{{Key: "id", Text: "id"}, {Key: "名前", Text: `"名前"`}}
+	if !reflect.DeepEqual(got.Candidates, want) {
+		t.Errorf("got %+v, want %+v", got.Candidates, want)
+	}
+}
+
+func TestNarrow(t *testing.T) {
+	docs := []any{map[string]any{"name": nil, "Nickname": nil, "id": nil, "名前": nil, "n-1": nil}}
+	c := Complete(context.Background(), ".items | .", []any{map[string]any{"items": docs[0]}})
+	tests := []struct {
+		name string
+		text string
+		want []string
+	}{
+		{"same text", ".items | .", []string{"id", `"n-1"`, "name", "Nickname", `"名前"`}},
+		{"more of the key", ".items | .n", []string{`"n-1"`, "name", "Nickname"}},
+		{"ignores case", ".items | .NI", []string{"Nickname"}},
+		{"leaves out the exact key", ".items | .name", nil},
+		{"no match", ".items | .x", nil},
+		{"past the key", ".items | .name ", nil},
+		{"other text", ".other | .", nil},
+		{"shorter text", ".items | ", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := candidateTexts(c.Narrow(tt.text)); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNarrowWithoutCandidates(t *testing.T) {
+	if got := (Completion{}).Narrow(""); got != nil {
+		t.Errorf("got %+v", got)
 	}
 }
 
@@ -102,7 +150,7 @@ func TestCompleteCandidatesParse(t *testing.T) {
 		t.Fatalf("got %d candidates, want %d: %q", len(got.Candidates), len(doc), got.Candidates)
 	}
 	seen := map[string]bool{}
-	for _, c := range got.Candidates {
+	for _, c := range candidateTexts(got.Candidates) {
 		query, err := gojq.Parse("." + c)
 		if err != nil {
 			t.Errorf("%q: %v", c, err)

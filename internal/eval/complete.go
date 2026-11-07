@@ -35,9 +35,44 @@ type Completion struct {
 	Start int
 	// Partial is the part of the key typed so far, text[Start:].
 	Partial string
-	// Candidates are the texts that can replace Partial, sorted ignoring case.
-	// A key that is not an identifier is quoted, as in ."名前".
-	Candidates []string
+	// Candidates are the keys that match Partial, sorted ignoring case.
+	Candidates []Candidate
+
+	// text is the text the candidates were computed for.
+	text string
+}
+
+// Candidate is one key that can complete the key being typed.
+type Candidate struct {
+	// Key is the object key.
+	Key string
+	// Text replaces the partial key. It is Key if Key is an identifier, and Key
+	// quoted otherwise, as in ."名前".
+	Text string
+}
+
+// Narrow returns the candidates that apply to text, the expression up to the
+// cursor, while it continues the key c completes: text must be the text c was
+// computed for, followed by more characters of the key. The partial key then
+// still starts at c.Start. Narrow leaves out a candidate that the partial key
+// already equals, because inserting it would change nothing.
+//
+// Narrow returns nil for any other text, because c says nothing about it. It lets
+// the caller update the candidates on every keystroke and run Complete only after
+// a pause.
+func (c Completion) Narrow(text string) []Candidate {
+	if len(c.Candidates) == 0 || !strings.HasPrefix(text, c.text) || !isIdentBytes(text[len(c.text):]) {
+		return nil
+	}
+	partial := text[c.Start:]
+	prefix := strings.ToLower(partial)
+	var out []Candidate
+	for _, cand := range c.Candidates {
+		if cand.Text != partial && strings.HasPrefix(strings.ToLower(cand.Key), prefix) {
+			out = append(out, cand)
+		}
+	}
+	return out
 }
 
 // Complete returns the keys that can follow text, the expression up to the
@@ -75,7 +110,7 @@ func Complete(ctx context.Context, text string, docs []any) Completion {
 	}
 	c.run(ctx, code, docs)
 
-	return Completion{Start: start, Partial: partial, Candidates: c.candidates()}
+	return Completion{Start: start, Partial: partial, Candidates: c.candidates(), text: text}
 }
 
 // partialKeyStart returns the offset of the identifier characters at the end of
@@ -266,7 +301,7 @@ func (c *collector) run(ctx context.Context, code *gojq.Code, docs []any) {
 	}
 }
 
-func (c *collector) candidates() []string {
+func (c *collector) candidates() []Candidate {
 	if len(c.keys) == 0 {
 		return nil
 	}
@@ -277,10 +312,11 @@ func (c *collector) candidates() []string {
 	slices.SortFunc(keys, func(a, b string) int {
 		return cmp.Or(cmp.Compare(strings.ToLower(a), strings.ToLower(b)), cmp.Compare(a, b))
 	})
+	cands := make([]Candidate, len(keys))
 	for i, k := range keys {
-		keys[i] = keyText(k)
+		cands[i] = Candidate{Key: k, Text: keyText(k)}
 	}
-	return keys
+	return cands
 }
 
 // keyText returns k as it can follow a dot: as is if it is an identifier, and
@@ -298,9 +334,10 @@ func keyText(k string) string {
 }
 
 func isIdent(s string) bool {
-	if s == "" || isDigit(s[0]) {
-		return false
-	}
+	return s != "" && !isDigit(s[0]) && isIdentBytes(s)
+}
+
+func isIdentBytes(s string) bool {
 	for i := range len(s) {
 		if !isIdentByte(s[i]) {
 			return false

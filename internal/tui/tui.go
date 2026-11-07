@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/cursor"
 	"github.com/charmbracelet/bubbles/key"
@@ -32,6 +33,13 @@ const (
 	defaultSlowAfter = 200 * time.Millisecond
 	previewTimeout   = 5 * time.Second
 	previewMaxBytes  = 1 << 20
+	completeTimeout  = time.Second
+
+	// maxCandidateRows is the number of candidates the list shows at once.
+	maxCandidateRows = 5
+	// ellipsis ends a candidate that does not fit. It is ASCII because "…" is
+	// two columns wide in some East Asian terminals.
+	ellipsis = "..."
 
 	prompt = "> "
 	// chromeHeight is the number of rows above the pane: the input and the status.
@@ -76,15 +84,26 @@ type (
 		res eval.Result
 		err error
 	}
+	// completeDebounceMsg ends the wait after the text before the cursor changed.
+	completeDebounceMsg struct{ seq int }
+	// completionMsg carries the candidates for the text before the cursor.
+	completionMsg struct {
+		seq  int
+		comp eval.Completion
+	}
 )
 
 // evaluator is the signature of eval.Eval.
 type evaluator func(ctx context.Context, expr string, docs []any, maxBytes int) (eval.Result, error)
 
+// completer is the signature of eval.Complete.
+type completer func(ctx context.Context, text string, docs []any) eval.Completion
+
 // Model is the Bubble Tea model of the screen.
 type Model struct {
-	docs []any
-	run  evaluator
+	docs     []any
+	run      evaluator
+	complete completer
 
 	debounce  time.Duration
 	slowAfter time.Duration
@@ -92,9 +111,11 @@ type Model struct {
 	input textinput.Model
 	pane  viewport.Model
 
-	errStyle  lipgloss.Style
-	noteStyle lipgloss.Style
-	helpStyle lipgloss.Style
+	errStyle      lipgloss.Style
+	noteStyle     lipgloss.Style
+	helpStyle     lipgloss.Style
+	menuStyle     lipgloss.Style
+	selectedStyle lipgloss.Style
 
 	width int
 
@@ -109,6 +130,19 @@ type Model struct {
 	errMsg string
 	// output is the last good result, the one on screen.
 	output string
+
+	// comp holds the latest candidates. They may be for an earlier text before the
+	// cursor; Narrow decides which of them still apply.
+	comp eval.Completion
+	// compSeq identifies the latest completion request, like seq.
+	compSeq int
+	// compCancel stops the running completion, if any.
+	compCancel context.CancelFunc
+	// compClosed hides the candidates until the text before the cursor changes.
+	compClosed bool
+	// compSel is the index of the selected candidate, and compTop the index of the
+	// first one on screen.
+	compSel, compTop int
 
 	confirmed bool
 }
@@ -134,15 +168,18 @@ func New(docs []any) *Model {
 	}
 
 	return &Model{
-		docs:      docs,
-		run:       eval.Eval,
-		debounce:  defaultDebounce,
-		slowAfter: defaultSlowAfter,
-		input:     input,
-		pane:      pane,
-		errStyle:  lipgloss.NewStyle().Foreground(lipgloss.Color("9")),
-		noteStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("11")),
-		helpStyle: lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
+		docs:          docs,
+		run:           eval.Eval,
+		complete:      eval.Complete,
+		debounce:      defaultDebounce,
+		slowAfter:     defaultSlowAfter,
+		input:         input,
+		pane:          pane,
+		errStyle:      lipgloss.NewStyle().Foreground(lipgloss.Color("9")),
+		noteStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("11")),
+		helpStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
+		menuStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(lipgloss.Color("238")),
+		selectedStyle: cursorStyle().Reverse(true),
 	}
 }
 
@@ -194,6 +231,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case resultMsg:
 		return m, m.handleResult(msg)
+	case completeDebounceMsg:
+		if msg.seq != m.compSeq {
+			return m, nil
+		}
+		return m, m.startCompletion()
+	case completionMsg:
+		if msg.seq == m.compSeq {
+			m.stopCompletion()
+			m.comp = msg.comp
+		}
+		return m, nil
 	}
 	return m, m.updateInput(msg)
 }
@@ -201,16 +249,34 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 	switch msg.String() {
 	case "ctrl+c":
-		m.stopEvaluation()
-		return tea.Quit
+		return m.quit()
 	case "enter":
 		return m.handleEnter()
 	case "up", "down", "pgup", "pgdown", "shift+left", "shift+right":
 		var cmd tea.Cmd
 		m.pane, cmd = m.pane.Update(msg)
 		return cmd
+	// textinput binds these keys to its own suggestions, which are not used.
+	case "tab", "ctrl+y":
+		return m.acceptCandidate()
+	case "ctrl+n":
+		m.moveSelection(1)
+		return nil
+	case "ctrl+p":
+		m.moveSelection(-1)
+		return nil
+	case "esc":
+		m.compClosed = true
+		return nil
 	}
 	return m.updateInput(msg)
+}
+
+// quit stops all work in progress and ends the program.
+func (m *Model) quit() tea.Cmd {
+	m.stopEvaluation()
+	m.stopCompletion()
+	return tea.Quit
 }
 
 // handleEnter confirms the current expression if its complete result is known.
@@ -220,27 +286,110 @@ func (m *Model) handleEnter() tea.Cmd {
 	switch m.state {
 	case stateDone:
 		m.confirmed = true
-		return tea.Quit
+		return m.quit()
 	case stateEvaluating, stateTruncated, stateTimedOut:
 		return m.startFinishing()
 	}
 	return nil
 }
 
-// updateInput forwards msg to the input, and schedules a preview if the expression
-// changed. Editing also abandons any evaluation in progress, including the one
-// started by Enter.
+// updateInput forwards msg to the input and reacts to the edit.
 func (m *Model) updateInput(msg tea.Msg) tea.Cmd {
-	before := m.input.Value()
+	value, head := m.input.Value(), m.head()
 	var inputCmd tea.Cmd
 	m.input, inputCmd = m.input.Update(msg)
-	if m.input.Value() == before {
-		return inputCmd
-	}
+	return tea.Batch(inputCmd, m.afterEdit(value, head))
+}
 
-	seq := m.nextRequest(stateEvaluating)
-	debounce := tea.Tick(m.debounce, func(time.Time) tea.Msg { return debounceMsg{seq: seq} })
-	return tea.Batch(inputCmd, debounce)
+// afterEdit schedules a preview if the expression changed from value, and new
+// candidates if the text before the cursor changed from head. Editing also
+// abandons any evaluation in progress, including the one started by Enter.
+func (m *Model) afterEdit(value, head string) tea.Cmd {
+	var cmds []tea.Cmd
+	if m.input.Value() != value {
+		seq := m.nextRequest(stateEvaluating)
+		cmds = append(cmds, tea.Tick(m.debounce, func(time.Time) tea.Msg { return debounceMsg{seq: seq} }))
+	}
+	if m.head() != head {
+		cmds = append(cmds, m.requestCompletion())
+	}
+	return tea.Batch(cmds...)
+}
+
+// head returns the expression up to the cursor.
+func (m *Model) head() string {
+	value := []rune(m.input.Value())
+	return string(value[:min(m.input.Position(), len(value))])
+}
+
+// requestCompletion schedules new candidates for the text before the cursor. The
+// current ones stay, narrowed by Narrow, until the new ones arrive.
+func (m *Model) requestCompletion() tea.Cmd {
+	m.stopCompletion()
+	m.compSeq++
+	m.compClosed = false
+	m.compSel, m.compTop = 0, 0
+	seq := m.compSeq
+	return tea.Tick(m.debounce, func(time.Time) tea.Msg { return completeDebounceMsg{seq: seq} })
+}
+
+func (m *Model) startCompletion() tea.Cmd {
+	ctx, cancel := context.WithTimeout(context.Background(), completeTimeout)
+	m.compCancel = cancel
+	complete, text, docs, seq := m.complete, m.head(), m.docs, m.compSeq
+	return func() tea.Msg {
+		return completionMsg{seq: seq, comp: complete(ctx, text, docs)}
+	}
+}
+
+func (m *Model) stopCompletion() {
+	if m.compCancel != nil {
+		m.compCancel()
+		m.compCancel = nil
+	}
+}
+
+// candidates returns the candidates on screen.
+func (m *Model) candidates() []eval.Candidate {
+	if m.compClosed {
+		return nil
+	}
+	return m.comp.Narrow(m.head())
+}
+
+// selected returns the index of the selected candidate among n. The list can
+// shrink after the selection was made.
+func (m *Model) selected(n int) int {
+	return min(m.compSel, n-1)
+}
+
+// moveSelection selects the candidate delta rows away, wrapping around.
+func (m *Model) moveSelection(delta int) {
+	n := len(m.candidates())
+	if n == 0 {
+		return
+	}
+	m.compSel = (m.selected(n) + delta + n) % n
+	if m.compSel < m.compTop {
+		m.compTop = m.compSel
+	}
+	if m.compSel >= m.compTop+maxCandidateRows {
+		m.compTop = m.compSel - maxCandidateRows + 1
+	}
+}
+
+// acceptCandidate replaces the partial key with the selected candidate and moves
+// the cursor after it. The text after the cursor stays.
+func (m *Model) acceptCandidate() tea.Cmd {
+	cands := m.candidates()
+	if len(cands) == 0 {
+		return nil
+	}
+	value, head := m.input.Value(), m.head()
+	newHead := head[:m.comp.Start] + cands[m.selected(len(cands))].Text
+	m.input.SetValue(newHead + value[len(head):])
+	m.input.SetCursor(utf8.RuneCountInString(newHead))
+	return m.afterEdit(value, head)
 }
 
 func (m *Model) startPreview() tea.Cmd {
@@ -294,7 +443,7 @@ func (m *Model) handleResult(msg resultMsg) tea.Cmd {
 	case msg.err == nil && finishing:
 		m.output = msg.res.Output
 		m.confirmed = true
-		return tea.Quit
+		return m.quit()
 	case msg.err == nil:
 		m.showOutput(msg.res.Output)
 		m.errMsg = ""
@@ -336,7 +485,98 @@ func (m *Model) resize(width, height int) {
 
 // View implements tea.Model.
 func (m *Model) View() string {
-	return m.input.View() + "\n" + m.statusLine() + "\n" + m.pane.View()
+	return m.input.View() + "\n" + m.statusLine() + "\n" + m.paneView()
+}
+
+// paneView draws the candidate list over the top rows of the pane, lined up with
+// the start of the expression.
+func (m *Model) paneView() string {
+	view := m.pane.View()
+	box, boxWidth := m.candidateBox()
+	if len(box) == 0 {
+		return view
+	}
+	col := lipgloss.Width(prompt)
+	lines := strings.Split(view, "\n")
+	for i, row := range box {
+		if i >= len(lines) {
+			break
+		}
+		left := columns(lines[i], 0, col)
+		left += strings.Repeat(" ", col-lipgloss.Width(left))
+		lines[i] = left + row + columns(lines[i], col+boxWidth, m.width)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// candidateBox renders the rows of the candidate list and returns their width.
+// If there are more candidates than rows, a last row shows the position in the
+// list.
+func (m *Model) candidateBox() ([]string, int) {
+	cands := m.candidates()
+	// One column of padding on each side of the text.
+	textWidth := m.width - lipgloss.Width(prompt) - 2
+	rows := min(len(cands), maxCandidateRows, m.pane.Height)
+	if rows == 0 || textWidth < len(ellipsis)+1 {
+		return nil, 0
+	}
+	sel := m.selected(len(cands))
+	top := min(max(m.compTop, sel-rows+1), sel, len(cands)-rows)
+	shown := cands[top : top+rows]
+
+	counter := ""
+	if len(cands) > rows && rows < m.pane.Height {
+		counter = fmt.Sprintf("%d/%d", sel+1, len(cands))
+	}
+	width := lipgloss.Width(counter)
+	for _, c := range shown {
+		width = max(width, lipgloss.Width(c.Text))
+	}
+	width = min(width, textWidth)
+
+	var box []string
+	for i, c := range shown {
+		style := m.menuStyle
+		if top+i == sel {
+			style = m.selectedStyle
+		}
+		box = append(box, style.Render(" "+fit(c.Text, width)+" "))
+	}
+	if counter != "" {
+		box = append(box, m.menuStyle.Render(" "+fit(counter, width)+" "))
+	}
+	return box, width + 2
+}
+
+// fit pads or cuts s to exactly width columns.
+func fit(s string, width int) string {
+	if w := lipgloss.Width(s); w > width {
+		s = columns(s, 0, width-len(ellipsis)) + ellipsis
+	}
+	return s + strings.Repeat(" ", width-lipgloss.Width(s))
+}
+
+// columns returns the part of s between the columns from and to. A wide character
+// cut by either edge becomes spaces, so the result is to-from columns wide unless
+// s ends first. s must not contain escape sequences, which holds for the pane: it
+// shows formatted JSON, in which control characters are escaped.
+func columns(s string, from, to int) string {
+	var b strings.Builder
+	col := 0
+	for _, r := range s {
+		if col >= to {
+			break
+		}
+		w := lipgloss.Width(string(r))
+		switch {
+		case col >= from && col+w <= to:
+			b.WriteRune(r)
+		case col+w > from:
+			b.WriteString(strings.Repeat(" ", min(col+w, to)-max(col, from)))
+		}
+		col += w
+	}
+	return b.String()
 }
 
 // statusLine always takes exactly one row, so the layout does not jump.

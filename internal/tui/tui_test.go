@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -629,6 +630,298 @@ func TestOutcomeBeforeConfirmation(t *testing.T) {
 	h := newHarness(t, doc())
 	h.start()
 	h.wantNoOutcome()
+}
+
+func keysDoc() map[string]any {
+	return map[string]any{"alpha": json.Number("1"), "beta": json.Number("2"), "gamma": json.Number("3")}
+}
+
+// paneLines returns the rows of the screen below the input and the status.
+func (h *harness) paneLines() []string {
+	return strings.Split(h.m.View(), "\n")[chromeHeight:]
+}
+
+func (h *harness) wantInput(value string, cursor int) {
+	h.t.Helper()
+	if got := h.m.input.Value(); got != value {
+		h.t.Errorf("input is %q, want %q", got, value)
+	}
+	if got := h.m.input.Position(); got != cursor {
+		h.t.Errorf("cursor at %d, want %d", got, cursor)
+	}
+}
+
+func (h *harness) wantCandidates(want ...string) {
+	h.t.Helper()
+	var got []string
+	for _, c := range h.m.candidates() {
+		got = append(got, c.Text)
+	}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		h.t.Errorf("candidates %q, want %q", got, want)
+	}
+}
+
+func TestCandidatesAppearUnderTheExpression(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	h.wantCandidates("alpha", "beta", "gamma")
+	lines := h.paneLines()
+	// The list starts below the expression, after the prompt, and covers the pane.
+	for i, row := range []string{"{  alpha ", "   beta  ", "   gamma "} {
+		if !strings.HasPrefix(stripANSI(lines[i]), row) {
+			t.Errorf("row %d is %q, want it to start with %q", i, lines[i], row)
+		}
+	}
+	if !strings.Contains(lines[0], "\x1b[7m") {
+		t.Errorf("first candidate is not selected: %q", lines[0])
+	}
+}
+
+func TestTypingNarrowsCandidatesAtOnce(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	// The new candidates have not been computed yet.
+	h.send(runes("A"))
+	h.wantCandidates("alpha")
+}
+
+func TestCandidatesDisappearAfterTheKey(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	h.send(runes(" "))
+	h.wantCandidates()
+}
+
+func TestTabInsertsTheCandidate(t *testing.T) {
+	for _, k := range []tea.KeyMsg{{Type: tea.KeyTab}, {Type: tea.KeyCtrlY}} {
+		t.Run(k.String(), func(t *testing.T) {
+			h := newHarness(t, keysDoc())
+			h.start()
+			h.typeText(".b")
+			h.settle(h.send(k))
+			h.wantInput(".beta", 5)
+			h.wantCandidates()
+			h.wantPane("2")
+		})
+	}
+}
+
+func TestTabKeepsTheTextAfterTheCursor(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".g + 1")
+	for range 4 {
+		h.press(tea.KeyLeft)
+	}
+	h.wantCandidates("gamma")
+	h.press(tea.KeyTab)
+	h.wantInput(".gamma + 1", 6)
+}
+
+func TestTabQuotesKeysThatNeedIt(t *testing.T) {
+	h := newHarness(t, map[string]any{"名前": "太郎"})
+	h.start()
+	h.typeText(".")
+	h.press(tea.KeyTab)
+	h.wantInput(`."名前"`, 5)
+	h.wantPane(`"太郎"`)
+}
+
+func TestTabWithoutCandidatesDoesNothing(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".x")
+	h.press(tea.KeyTab)
+	h.wantInput(".x", 2)
+}
+
+func TestCtrlNAndCtrlPSelectCandidates(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	h.press(tea.KeyCtrlN)
+	h.press(tea.KeyCtrlN)
+	if !strings.Contains(h.paneLines()[2], "\x1b[7m") {
+		t.Errorf("third candidate is not selected: %q", h.paneLines()[2])
+	}
+	h.press(tea.KeyCtrlN) // Wraps to the first.
+	h.press(tea.KeyCtrlP) // Wraps to the last.
+	h.press(tea.KeyCtrlP)
+	h.press(tea.KeyTab)
+	h.wantInput(".beta", 5)
+}
+
+func TestSelectionScrollsTheList(t *testing.T) {
+	doc := map[string]any{}
+	for i := range 12 {
+		doc[fmt.Sprintf("k%02d", i)] = nil
+	}
+	h := newHarness(t, doc)
+	h.start()
+	h.typeText(".")
+	lines := h.paneLines()
+	if got := stripANSI(lines[maxCandidateRows]); !strings.HasPrefix(got, "   1/12") {
+		t.Errorf("counter row is %q", got)
+	}
+	for range 7 {
+		h.press(tea.KeyCtrlN)
+	}
+	lines = h.paneLines()
+	if got := stripANSI(lines[maxCandidateRows-1]); !strings.HasPrefix(got, "   k07") {
+		t.Errorf("last row is %q, want the selected k07", got)
+	}
+	if got := stripANSI(lines[maxCandidateRows]); !strings.HasPrefix(got, "   8/12") {
+		t.Errorf("counter row is %q", got)
+	}
+	h.press(tea.KeyTab)
+	h.wantInput(".k07", 4)
+}
+
+func TestEscClosesCandidatesUntilTheNextEdit(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	h.press(tea.KeyEsc)
+	h.wantCandidates()
+	h.press(tea.KeyTab)
+	h.wantInput(".", 1)
+
+	h.typeText("a")
+	h.wantCandidates("alpha")
+}
+
+func TestArrowsScrollWhileCandidatesAreShown(t *testing.T) {
+	doc := keysDoc()
+	doc["list"] = manyLines(100)
+	h := newHarness(t, doc)
+	h.start()
+	h.typeText(".")
+	h.press(tea.KeyDown)
+	if h.m.pane.YOffset != 1 {
+		t.Errorf("offset %d, want 1", h.m.pane.YOffset)
+	}
+	h.press(tea.KeyTab)
+	h.wantInput(".alpha", 6)
+}
+
+func TestEnterConfirmsWhileCandidatesAreShown(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".al")
+	h.wantCandidates("alpha")
+	h.press(tea.KeyEnter)
+	h.wantOutcome("null\n", ".al")
+}
+
+func TestCursorMoveRequestsCandidates(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".g | .")
+	h.wantCandidates()
+	for range 4 {
+		h.press(tea.KeyLeft)
+	}
+	h.wantCandidates("gamma")
+}
+
+func TestStaleCompletionIsDropped(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	h.start()
+	h.typeText(".")
+	stale := eval.Complete(context.Background(), ".", []any{map[string]any{"stale": nil}})
+	h.send(completionMsg{seq: h.m.compSeq - 1, comp: stale})
+	h.wantCandidates("alpha", "beta", "gamma")
+}
+
+func TestEditCancelsRunningCompletion(t *testing.T) {
+	h := newHarness(t, keysDoc())
+	var running context.Context
+	h.m.complete = func(ctx context.Context, text string, docs []any) eval.Completion {
+		running = ctx
+		return eval.Completion{}
+	}
+	h.start()
+	h.send(runes("."))
+	messages(h.send(completeDebounceMsg{seq: h.m.compSeq}))
+	if running == nil || running.Err() != nil {
+		t.Fatalf("completion did not run: %v", running)
+	}
+	h.send(runes("a"))
+	if !errors.Is(running.Err(), context.Canceled) {
+		t.Errorf("running completion was not canceled: %v", running.Err())
+	}
+}
+
+func TestCandidatesFitTinyWindows(t *testing.T) {
+	h := newHarness(t, map[string]any{strings.Repeat("k", 100): nil, "名前": nil})
+	h.start()
+	h.typeText(".")
+	for _, size := range [][2]int{{80, 24}, {12, 5}, {7, 4}, {3, 3}, {1, 1}, {0, 0}} {
+		h.m.Update(tea.WindowSizeMsg{Width: size[0], Height: size[1]})
+		pane := h.m.paneView()
+		if size[0] == 0 {
+			continue
+		}
+		if got := lipgloss.Width(pane); got > size[0] {
+			t.Errorf("%v: pane is %d columns:\n%s", size, got, pane)
+		}
+		if got := lipgloss.Height(pane); got > max(size[1]-chromeHeight, 1) {
+			t.Errorf("%v: pane is %d rows:\n%s", size, got, pane)
+		}
+	}
+}
+
+func TestCandidatesOverWideCharacters(t *testing.T) {
+	h := newHarness(t, map[string]any{"a": "あいうえおかきくけこ"})
+	h.start()
+	h.typeText(".")
+	for _, line := range h.paneLines() {
+		if got := lipgloss.Width(line); got > 80 {
+			t.Errorf("row is %d columns: %q", got, line)
+		}
+	}
+}
+
+func TestColumns(t *testing.T) {
+	tests := []struct {
+		s        string
+		from, to int
+		want     string
+	}{
+		{"abcdef", 0, 3, "abc"},
+		{"abcdef", 2, 4, "cd"},
+		{"abc", 1, 10, "bc"},
+		{"あいう", 0, 4, "あい"},
+		{"あいう", 1, 4, " い"},
+		{"あいう", 0, 3, "あ "},
+		{"あいう", 1, 2, " "},
+		{"", 0, 3, ""},
+	}
+	for _, tt := range tests {
+		if got := columns(tt.s, tt.from, tt.to); got != tt.want {
+			t.Errorf("columns(%q, %d, %d) = %q, want %q", tt.s, tt.from, tt.to, got, tt.want)
+		}
+	}
+}
+
+// stripANSI removes SGR sequences, which the tests only produce for the
+// selected candidate.
+func stripANSI(s string) string {
+	for {
+		i := strings.Index(s, "\x1b[")
+		if i < 0 {
+			return s
+		}
+		j := strings.IndexByte(s[i:], 'm')
+		if j < 0 {
+			return s
+		}
+		s = s[:i] + s[i+j+1:]
+	}
 }
 
 func manyLines(n int) []any {
