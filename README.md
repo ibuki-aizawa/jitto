@@ -1,31 +1,62 @@
 # jitto
 
-Windows 向けのインタラクティブ jq ツールです。jq 式を入力すると、結果がその場で表示されます。
+[![CI](https://github.com/ibuki-aizawa/jitto/actions/workflows/ci.yml/badge.svg)](https://github.com/ibuki-aizawa/jitto/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/ibuki-aizawa/jitto)](https://github.com/ibuki-aizawa/jitto/releases/latest)
+[![Go](https://img.shields.io/github/go-mod/go-version/ibuki-aizawa/jitto)](go.mod)
+[![License](https://img.shields.io/github/license/ibuki-aizawa/jitto)](LICENSE)
 
-Go 製のシングルバイナリで、外部の jq は必要ありません。jq 式の評価には [gojq](https://github.com/itchyny/gojq) を使っています。
+**English** | [日本語](README.ja.md)
 
-![jitto のデモ](demo/demo.gif)
+An interactive jq for Windows. Type a jq expression and watch the result update as you type.
 
-## インストール
+The name comes from the Japanese word *jitto* (じっと), "to stare intently" — as in staring at your JSON until it makes sense.
 
-winget での配布は準備中です。
+![jitto demo](demo/demo.gif)
 
-### GitHub Releases からダウンロードする
+> 日本語の説明は [README.ja.md](README.ja.md) にあります。Shift_JIS の入力や PowerShell での使い方も、日本語で詳しく説明しています。
 
-1. [Releases](https://github.com/ibuki-aizawa/jitto/releases) から `jitto-windows-amd64.exe` をダウンロードします。
-2. 必要に応じて `jitto.exe` に名前を変え、PATH の通ったフォルダーに置きます。
+## Features
 
-実行ファイルにはコード署名がありません。そのため、ダウンロードしたファイルをエクスプローラーからダブルクリックして初めて開くときに、発行元が「不明な発行元」と表示されることがあります。続けるには「実行」を選んでください。次回からは表示されません。コマンドラインから実行した場合は、この表示は確認していません。
+- **Live results**: The result pane updates on every keystroke.
+- **Key completion from your data**: jitto runs the expression on your JSON and suggests the keys that actually appear there, even inside `.[] | ...` or `map(...)`. Ctrl+N / Ctrl+P write each candidate into the input and preview its result.
+- **Keeps the last good result**: While the expression is incomplete or has an error, the previous result stays on screen with the error message.
+- **Fits into scripts**: Enter prints the result to stdout and the expression to stderr. Pipe the result to the next command, and copy the expression into your script.
+- **Made for Windows**: Works in Windows Terminal, PowerShell and cmd. Reads UTF-8, UTF-16 with a BOM and Shift_JIS.
+- **A single binary**: No jq to install. jitto evaluates expressions with [gojq](https://github.com/itchyny/gojq).
 
-ファイルが壊れていないか確かめたいときは、リリースに添付した `SHA256SUMS` と照合してください。
+## Quick start
+
+```powershell
+# Open a file
+jitto data.json
+
+# Read from standard input
+curl https://example.com/data.json | jitto
+
+# Pass the confirmed result to the next command
+jitto data.json | Set-Content result.json
+```
+
+Type an expression, then press Enter to print the result, or Ctrl+C to quit without output.
+
+## Install
+
+winget support is coming soon.
+
+### From GitHub Releases
+
+1. Download `jitto-windows-amd64.exe` from [Releases](https://github.com/ibuki-aizawa/jitto/releases/latest).
+2. Rename it to `jitto.exe` if you like, and put it in a folder on your PATH.
+
+The executable is not code-signed. When you open it from Explorer for the first time, Windows may show "Unknown publisher"; choose "Run" to continue. To check the download, compare it with `SHA256SUMS` attached to the release:
 
 ```powershell
 Get-FileHash .\jitto-windows-amd64.exe
 ```
 
-### ソースからビルドする
+### From source
 
-Go 1.27 以降が必要です。
+Requires Go 1.27 or later.
 
 ```powershell
 git clone https://github.com/ibuki-aizawa/jitto.git
@@ -33,141 +64,114 @@ cd jitto
 go build -o jitto.exe .
 ```
 
-## 使い方
+## Usage
 
-```powershell
-# ファイルを開く
-jitto data.json
-
-# 標準入力から読む
-curl https://example.com/data.json | jitto
-
-# 確定した結果を次のコマンドへ渡す
-jitto data.json | Set-Content result.json
-
-# Shift_JIS のファイルを開く
-jitto --encoding sjis data.json
+```
+jitto [--encoding NAME] FILE
+COMMAND | jitto [--encoding NAME]
 ```
 
-`jitto --version`（`-V`）でバージョン、`jitto --help`（`-h`）でヘルプを表示します。
+Without `FILE`, jitto reads JSON from standard input. `jitto --version` (`-V`) shows the version and `jitto --help` (`-h`) shows the help.
 
-### 文字コード
+Type a jq expression in the input at the top; the result appears in the pane below. An empty expression means `.`.
 
-入力は UTF-8 として読みます。先頭に BOM があるときは、BOM に従って UTF-8 か UTF-16 として読みます。
+Press Enter to confirm. jitto prints the result to stdout and the expression to stderr, and exits. Only the result flows into a pipe or redirect, and the expression stays on screen. While the expression has an error, Enter does nothing.
 
-Shift_JIS の入力は、`--encoding sjis` を付けて読みます（`--encoding=sjis` とも書けます）。名前は `shift_jis`、`sjis`、`cp932`、`windows-31j` のどれでもよく、大文字と小文字は区別しません。Windows で使われる Shift_JIS（コードページ 932）として読むので、①や髙などの機種依存文字も読めます。先頭に UTF-16 の BOM があるときは、`--encoding` よりも BOM を優先します。UTF-8 の BOM は読み飛ばし、残りを Shift_JIS として読みます（PowerShell 5.1 は、Shift_JIS のパイプにも UTF-8 の BOM を付けることがあるためです）。
+### Key completion
 
-結果は、入力の文字コードにかかわらず UTF-8 で出力します。
+When you start a key, as in `.` or `.items[0].na`, jitto lists the keys available at that point just below what you typed. It finds them by running the expression on your data, so `.[] | .na` and `map(.na` suggest the keys of every element.
 
-上部の入力欄に jq 式を入力すると、下部のペインに結果が表示されます。Enter で確定すると、結果を stdout、式を stderr に出力して終了します。結果だけがパイプやリダイレクトに流れ、式は画面に残るので、スクリプトに転用できます。
+- The list is filtered by what you have typed, ignoring case.
+- Ctrl+N / Ctrl+P write the candidates into the input one by one, like completion in Vim, and the result pane shows the result of that expression. After the last candidate (or before the first), you are back to what you typed.
+- Keep typing, or press Tab / Ctrl+Y, to continue with the candidate. Without a selection, Tab / Ctrl+Y inserts the first candidate.
+- Esc restores what you typed and closes the list.
+- Keys that need quotes, such as `a-b`, are inserted as `."a-b"`.
 
-式がエラーのときは、直前の正常な結果を残したままエラーを表示します。この間は Enter を押しても確定しません。
+### Keys
 
-### キーの補完
-
-`.` や `.items[0].na` のようにキーを書きかけると、その位置で使えるキーを、書きかけのキーの下に一覧で表示します。候補は、式を実際にデータへ適用して、その位置に届いたオブジェクトのキーから集めます。そのため、`.[] | .na` や `map(.na` のように配列の要素を扱う式でも、すべての要素のキーが候補に出ます。
-
-候補は書きかけの部分で絞り込みます。大文字と小文字は区別しません。`名前` や `a-b` のように引用符が必要なキーは、`."名前"` の形で入力されます。
-
-Ctrl+N / Ctrl+P を押すと、候補を順に入力欄へ書き込み、結果のペインにもその式の結果を表示します。最後の候補の次（先頭の候補の前）では、書きかけていた元の値に戻ります。そのまま文字を入力するか Tab / Ctrl+Y を押すと、書き込んだ候補で続けられます。Enter を押すと、表示中の式で確定します。Esc を押すと、書きかけていた元の値に戻して一覧を閉じます。
-
-候補を選ばずに Tab / Ctrl+Y を押すと、先頭の候補を入力します。
-
-## キー操作
-
-| キー | 動作 |
+| Key | Action |
 |---|---|
-| Enter | 結果を出力して終了 |
-| Ctrl+C | 何も出力せずに終了 |
-| ↑ ↓ | 結果を1行スクロール |
-| PgUp PgDn | 結果を1ページスクロール |
-| Shift+← Shift+→ | 結果を横にスクロール |
-| Ctrl+N Ctrl+P | キーの候補を順に入力欄へ書き込み、その結果を表示 |
-| Tab Ctrl+Y | 書き込んだ候補で確定（選んでいなければ先頭の候補を入力） |
-| Esc | 候補の一覧を閉じる（選択中なら元の値に戻す。次に編集するまで閉じたまま） |
-| Ctrl+W（Alt+Backspace） | カーソルの前の単語を削除 |
-| Alt+D（Alt+Delete） | カーソルの後ろの単語を削除 |
-| Ctrl+← Ctrl+→（Alt+B Alt+F） | 単語単位でカーソルを移動 |
-| ← → など | 入力欄の編集 |
+| Enter | Print the result and exit |
+| Ctrl+C | Exit without output |
+| ↑ ↓ | Scroll the result by one line |
+| PgUp PgDn | Scroll the result by one page |
+| Shift+← Shift+→ | Scroll the result sideways |
+| Ctrl+N Ctrl+P | Write the next / previous candidate into the input and preview it |
+| Tab Ctrl+Y | Accept the candidate (or insert the first one) |
+| Esc | Close the candidates (restoring what you typed; they stay closed until you edit) |
+| Ctrl+W (Alt+Backspace) | Delete the word before the cursor |
+| Alt+D (Alt+Delete) | Delete the word after the cursor |
+| Ctrl+← Ctrl+→ (Alt+B Alt+F) | Move by word |
+| ← → etc. | Edit the input |
 
-単語は、キーに使う文字（英数字、`_`、日本語などの文字）が続く部分と、記号が続く部分で区切ります。たとえば `.items[0].name` で Ctrl+W を押すと `name` だけが消えて `.items[0].` が残り、キーの候補を選び直せます。
+The mouse wheel also scrolls the result.
 
-## 動作の詳細
+A word is a run of key characters (letters, digits, `_`) or a run of symbols. In `.items[0].name`, Ctrl+W deletes only `name` and leaves `.items[0].`, so you can pick another key.
 
-- 複数の JSON（NDJSON など）を読み込むと、jq と同じくドキュメントごとに式を適用します。
-- 空の式は `.` として扱います。
-- キーの候補を集めるときは、調べる値を 1 万個、候補を 1000 個までとし、1 秒で打ち切ります。
-- プレビューは 1 MiB までで、評価は 5 秒で打ち切ります。打ち切られた式でも、Enter を押すと上限なしで評価して、すべての結果を出力します。時間がかかるときは、式を編集すると評価を中止でき、Ctrl+C で終了できます。
+## Encodings
 
-### 終了コード
+jitto reads UTF-8 by default. With a BOM at the start, it reads UTF-8 or UTF-16 as the BOM says.
 
-| コード | 意味 |
-|---|---|
-| 0 | 確定して出力した |
-| 1 | ファイルを読めない、JSON が不正、stderr がリダイレクトされているなど |
-| 2 | 使い方の誤り |
-| 130 | Ctrl+C で中止した |
+For Shift_JIS, add `--encoding sjis` (or `--encoding=sjis`). The names `shift_jis`, `sjis`, `cp932` and `windows-31j` all work, in any case. jitto reads it as the Windows code page 932. A UTF-16 BOM wins over `--encoding`; a UTF-8 BOM is skipped, because PowerShell 5.1 can add one even to Shift_JIS.
 
-画面を stderr に描画するため、stderr はリダイレクトできません。
+The output is always UTF-8.
 
-## 制約
+### PowerShell
 
-jq と異なる点の多くは gojq の仕様によるものです。
+PowerShell converts text twice in a pipe: when `Get-Content` reads the file (as `-Encoding`), and when it passes the text to an external command (as `$OutputEncoding`). If either is wrong, non-ASCII characters are replaced with `?` before they reach jitto, and jitto cannot detect it.
 
-- オブジェクトのキーはソートして出力され、入力の順序は保たれません。
-- 次の機能は使えません。
-  - `keys_unsorted`、`$__loc__`
-  - `debug`、`stderr`、`input_filename`
-  - `input`、`inputs`
-- `-r` などのコマンドラインオプションはありません。
-- 入力として読めるのは、UTF-8、BOM 付きの UTF-16、Shift_JIS（`--encoding sjis`）です。BOM のない UTF-16 や EUC-JP などは読めないので、UTF-8 に変換してください。
-- Shift_JIS の入力を `--encoding` なしで読むと、日本語が `�` に置き換わります。このときは、画面下のヘルプの位置に `--encoding sjis` を勧める注意を表示します。「表」や「ソ」のように 2 バイト目が `\` と同じ値の文字があると、JSON のエラーで終了することもあり、そのときはエラーのメッセージに同じ案内を添えます。
-- 10000 段を超えてネストした結果は表示できません。
+Passing the file as an argument avoids both conversions. To use a pipe:
 
-jq と同じく、キーに日本語などを使うときは `."名前"` のように引用符で囲みます。`.名前` と入力すると、エラーと一緒に正しい書き方を表示します。
-
-キーの補完には次の制約があります。
-
-- 候補に出るのはオブジェクトのキーだけです。配列の添字（`[0]`、`[]`）は候補に出ません。
-- 引用符の中で書きかけのキー（`."名` など）には、候補を出しません。`.` まで入力した時点で、引用符付きの候補が出ます。
-- `if` を `end` まで、`def` を `;` まで書き終えていない間（たとえば `if . then .na`）は、候補を出しません。閉じたあとの部分（`if . then . end | .na`）では、候補が出ます。
-
-## PowerShell と日本語
-
-PowerShell のパイプでは、文字コードの変換が 2 回起こります。
-
-1. `Get-Content` がファイルを読むとき（`-Encoding` で指定した文字コードとして読む）
-2. 外部コマンドに渡すとき（`$OutputEncoding` の文字コードに変換する）
-
-どちらかが合っていないと、日本語は jitto に届く前に `??` や `�` に置き換わります。この状態は jitto では元に戻せず、注意も表示されません。
-
-入力は、パイプではなくファイル引数で渡すのが確実です。
-
-```powershell
-jitto data.json                   # UTF-8 のファイル
-jitto --encoding sjis data.json   # Shift_JIS のファイル
-```
-
-パイプで渡すときは、次のようにします。cmd の `type data.json | jitto` は変換が起こらないので、そのまま使えます（Shift_JIS なら `--encoding sjis` を付けます）。
-
-| 環境 | UTF-8 のファイル | Shift_JIS のファイル |
+| Shell | UTF-8 file | Shift_JIS file |
 |---|---|---|
 | PowerShell 7 | `Get-Content data.json \| jitto` | `Get-Content -Encoding 932 data.json \| jitto` |
-| PowerShell 5.1 | 先に `$OutputEncoding = [Text.Encoding]::UTF8` を設定してから `Get-Content -Encoding UTF8 data.json \| jitto` | 先に `$OutputEncoding = [Text.Encoding]::GetEncoding(932)` を設定してから `Get-Content data.json \| jitto --encoding sjis` |
+| PowerShell 5.1 | `$OutputEncoding = [Text.Encoding]::UTF8`, then `Get-Content -Encoding UTF8 data.json \| jitto` | `$OutputEncoding = [Text.Encoding]::GetEncoding(932)`, then `Get-Content data.json \| jitto --encoding sjis` |
 
-PowerShell 5.1 の既定の `$OutputEncoding` は US-ASCII なので、設定しないと日本語は `??` になります。5.1 の `>` で保存したファイルは BOM 付きの UTF-16 になりますが、jitto はこれもファイル引数で読み込めます。
+In cmd, `type data.json | jitto` passes the bytes unchanged. Files saved with `>` in PowerShell 5.1 are UTF-16 with a BOM, which jitto reads as a file argument.
 
-### 出力
-
-結果は UTF-8 で出力します。PowerShell 5.1 で結果を `>` やパイプで受けると、ファイルでは文字化けします（画面の表示は正常です）。受けるときは、先にコンソールの文字コードも UTF-8 に設定します。
+To receive the UTF-8 output in PowerShell 5.1 with `>` or a pipe, set the console encoding first:
 
 ```powershell
 $OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
 Get-Content -Encoding UTF8 data.json | jitto | Set-Content -Encoding UTF8 result.json
 ```
 
-## ライセンス
+## Details
 
-MIT ライセンスです。詳しくは [LICENSE](LICENSE) を参照してください。
+- With multiple JSON documents (such as NDJSON), the expression applies to each document, as in jq.
+- Key completion examines up to 10,000 values, lists up to 1,000 keys, and stops after 1 second.
+- The preview shows up to 1 MiB, and evaluation stops after 5 seconds. Enter evaluates without these limits and prints the whole result. If it takes long, edit the expression to cancel, or press Ctrl+C to quit.
+- jitto draws the screen on stderr, so stderr cannot be redirected.
 
-jitto の実行ファイルには、Go と複数のオープンソースのライブラリが含まれています。それらのライセンスは、各リリースに添付する `THIRD_PARTY_NOTICES.txt` にまとめています。
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Confirmed and printed the result |
+| 1 | Cannot read the file, invalid JSON, stderr redirected, etc. |
+| 2 | Invalid usage |
+| 130 | Canceled with Ctrl+C |
+
+## Limitations
+
+Most differences from jq come from gojq.
+
+- Object keys are printed in sorted order; the input order is not kept.
+- These are not available: `keys_unsorted`, `$__loc__`, `debug`, `stderr`, `input_filename`, `input`, `inputs`.
+- There are no command-line options such as `-r`.
+- Input must be UTF-8, UTF-16 with a BOM, or Shift_JIS (`--encoding sjis`). Convert other encodings, such as UTF-16 without a BOM, to UTF-8 first.
+- Reading Shift_JIS without `--encoding` turns non-ASCII text into `�`. jitto then shows a notice suggesting `--encoding sjis`. Some characters can also make the JSON invalid; the error message includes the same hint.
+- Results nested deeper than 10,000 levels cannot be shown.
+- Non-identifier keys need quotes, as in jq: `."名前"`. Typing `.名前` shows the correct form with the error.
+
+Key completion:
+
+- Only object keys are suggested, not array indexes such as `[0]` or `[]`.
+- Inside quotes (`."na`), no candidates are shown. After `.`, candidates with quotes appear.
+- Inside an unfinished `if` (until `end`) or `def` (until `;`), as in `if . then .na`, no candidates are shown. After it is closed, as in `if . then . end | .na`, they are.
+
+## License
+
+[MIT](LICENSE)
+
+The jitto executable includes Go and several open-source libraries. Their licenses are in `THIRD_PARTY_NOTICES.txt`, attached to each release.
