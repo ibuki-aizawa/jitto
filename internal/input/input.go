@@ -12,6 +12,7 @@ import (
 	"os"
 	"strings"
 	"unicode/utf16"
+	"unicode/utf8"
 
 	"golang.org/x/text/encoding/japanese"
 	"golang.org/x/text/transform"
@@ -19,6 +20,15 @@ import (
 
 // ErrOddUTF16 is returned when UTF-16 input ends in the middle of a code unit.
 var ErrOddUTF16 = errors.New("UTF-16 input has an odd number of bytes")
+
+// ErrInvalidUTF8 is the notice Read gives when input read as UTF-8 is not
+// valid UTF-8. The documents are still usable: the invalid bytes in strings are
+// U+FFFD. Shift_JIS read without --encoding is the usual cause.
+//
+// It is also wrapped in the error when such input is not valid JSON either:
+// Shift_JIS text can contain 0x5C, a backslash in ASCII, which escapes the
+// closing quote of a string.
+var ErrInvalidUTF8 = errors.New("input is not valid UTF-8; for Shift_JIS, use --encoding sjis")
 
 var (
 	utf8BOM    = []byte{0xEF, 0xBB, 0xBF}
@@ -64,54 +74,68 @@ func ParseEncoding(name string) (Encoding, error) {
 // UTF-8 or UTF-16, as the mark says. Windows PowerShell 5.1 writes UTF-16 files
 // with ">". The byte offsets in errors count bytes of the input converted to
 // UTF-8.
-func Read(r io.Reader, enc Encoding) ([]any, error) {
-	br, err := toUTF8(bufio.NewReader(r), enc)
+//
+// notice is ErrInvalidUTF8 if the input is read as UTF-8 and is not valid UTF-8,
+// and nil otherwise. It does not make the documents unusable, unlike err. If
+// the input is not valid JSON, err wraps ErrInvalidUTF8 when invalid UTF-8 came
+// before the error.
+func Read(r io.Reader, enc Encoding) (docs []any, notice, err error) {
+	src, check, err := toUTF8(bufio.NewReader(r), enc)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	dec := json.NewDecoder(br)
+	dec := json.NewDecoder(src)
 	dec.UseNumber()
 
-	docs := []any{}
+	docs = []any{}
 	for {
 		var doc any
 		err := dec.Decode(&doc)
 		if errors.Is(err, io.EOF) {
-			return docs, nil
+			break
 		}
 		if err != nil {
-			return nil, describe(err, len(docs)+1)
+			err = describe(err, len(docs)+1)
+			if check != nil && check.invalid {
+				err = fmt.Errorf("%w (%w)", err, ErrInvalidUTF8)
+			}
+			return nil, nil, err
 		}
 		docs = append(docs, doc)
 	}
+	if check != nil && check.invalid {
+		notice = ErrInvalidUTF8
+	}
+	return docs, notice, nil
 }
 
 // ReadFile decodes every JSON document in the named file. See Read.
-func ReadFile(path string, enc Encoding) ([]any, error) {
+func ReadFile(path string, enc Encoding) (docs []any, notice, err error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer f.Close()
 
-	docs, err := Read(f, enc)
+	docs, notice, err = Read(f, enc)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, nil, fmt.Errorf("%s: %w", path, err)
 	}
-	return docs, nil
+	return docs, notice, nil
 }
 
 // toUTF8 returns the input as UTF-8 without byte order marks. It converts UTF-16
-// input, which it recognizes by its byte order mark, and input in enc.
-func toUTF8(br *bufio.Reader, enc Encoding) (*bufio.Reader, error) {
+// input, which it recognizes by its byte order mark, and input in enc. If the
+// input is read as UTF-8, it also returns the checker that sees it go by.
+func toUTF8(br *bufio.Reader, enc Encoding) (io.Reader, *utf8Checker, error) {
 	hadBOM, err := skipBOM(br)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	head, err := br.Peek(2)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
+		return nil, nil, err
 	}
 	var order binary.ByteOrder
 	switch {
@@ -121,26 +145,82 @@ func toUTF8(br *bufio.Reader, enc Encoding) (*bufio.Reader, error) {
 		order = binary.BigEndian
 	case enc == ShiftJIS && !hadBOM:
 		// Invalid bytes become U+FFFD, as invalid UTF-8 does when it is decoded.
-		return bufio.NewReader(transform.NewReader(br, japanese.ShiftJIS.NewDecoder())), nil
+		return transform.NewReader(br, japanese.ShiftJIS.NewDecoder()), nil, nil
 	default:
-		return br, nil
+		check := &utf8Checker{r: br}
+		return check, check, nil
 	}
 
 	// The documents end up in memory anyway, so convert the input as a whole.
 	b, err := io.ReadAll(br)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	s, err := decodeUTF16(b[2:], order)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// The text itself can start with more byte order marks.
 	out := bufio.NewReader(strings.NewReader(s))
 	if _, err := skipBOM(out); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return out, nil
+	return out, nil, nil
+}
+
+// utf8Checker passes r through and notes whether it is valid UTF-8. A valid
+// U+FFFD in the input does not count as invalid.
+type utf8Checker struct {
+	r io.Reader
+	// pending holds the start of a character that the last read cut off.
+	pending []byte
+	invalid bool
+}
+
+func (c *utf8Checker) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	if !c.invalid {
+		c.check(p[:n])
+		if errors.Is(err, io.EOF) && len(c.pending) > 0 {
+			// The input ends in the middle of a character.
+			c.invalid = true
+		}
+	}
+	return n, err
+}
+
+func (c *utf8Checker) check(b []byte) {
+	// Finish the character the last read cut off.
+	for len(c.pending) > 0 && len(b) > 0 {
+		c.pending = append(c.pending, b[0])
+		b = b[1:]
+		if utf8.FullRune(c.pending) {
+			if r, size := utf8.DecodeRune(c.pending); r == utf8.RuneError && size == 1 {
+				c.invalid = true
+				return
+			}
+			c.pending = c.pending[:0]
+		}
+	}
+	if len(b) == 0 {
+		return
+	}
+
+	// Keep a character that this read cuts off for the next one.
+	end := len(b)
+	for k := 1; k <= utf8.UTFMax-1 && k <= len(b); k++ {
+		if utf8.RuneStart(b[len(b)-k]) {
+			if !utf8.FullRune(b[len(b)-k:]) {
+				end = len(b) - k
+			}
+			break
+		}
+	}
+	if !utf8.Valid(b[:end]) {
+		c.invalid = true
+		return
+	}
+	c.pending = append(c.pending, b[end:]...)
 }
 
 // decodeUTF16 converts b to UTF-8. An unpaired surrogate becomes U+FFFD, as

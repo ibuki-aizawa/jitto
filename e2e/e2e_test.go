@@ -800,6 +800,31 @@ func TestShiftJIS(t *testing.T) {
 	}
 }
 
+func TestShiftJISWithoutEncoding(t *testing.T) {
+	t.Run("notice", func(t *testing.T) {
+		f := newFixture(t)
+		s, err := japanese.ShiftJIS.NewEncoder().String(`{"名前":"太郎"}`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		f.write("sjis.json", s)
+		session := f.start(`"{jitto}" sjis.json`)
+		session.see("use --encoding sjis")
+		session.wantConsoleLacks(helpShown)
+		// The document is still shown, with the Japanese text replaced.
+		session.see("�")
+	})
+
+	// 表 ends in 0x5C, which escapes the closing quote when read as UTF-8.
+	t.Run("invalid JSON", func(t *testing.T) {
+		f := newFixture(t)
+		f.writeShiftJIS("sjis.json")
+		s := f.start(`"{jitto}" sjis.json`)
+		s.wantExit(1)
+		s.wantConsoleContains("use --encoding sjis")
+	})
+}
+
 func TestByteOrderMarkIsAccepted(t *testing.T) {
 	f := newFixture(t)
 	f.write("bom.json", "\xef\xbb\xbf"+`{"a":"one"}`)

@@ -616,6 +616,31 @@ func TestErrorIsOneSanitizedLine(t *testing.T) {
 	}
 }
 
+func TestNoticeTakesThePlaceOfTheHelp(t *testing.T) {
+	h := newHarness(t, doc())
+	h.m.SetNotice("input is not valid UTF-8")
+	h.start()
+	h.wantPane("input is not valid UTF-8")
+	if strings.Contains(h.m.View(), helpText) {
+		t.Errorf("help shown with the notice:\n%s", h.m.View())
+	}
+
+	// A message about the expression comes first, and the notice comes back after.
+	h.typeText(".[")
+	h.wantPane("unexpected")
+	h.press(tea.KeyBackspace)
+	h.wantPane("input is not valid UTF-8")
+}
+
+func TestNoticeIsSanitized(t *testing.T) {
+	h := newHarness(t, doc())
+	h.m.SetNotice("bad\x1b[2Jinput")
+	h.start()
+	if status := h.m.statusLine(); strings.Contains(status, "\x1b[2J") || !strings.Contains(status, "bad [2Jinput") {
+		t.Errorf("status is %q", status)
+	}
+}
+
 func TestCursorIsVisibleWithoutColorSupport(t *testing.T) {
 	// Tests have no terminal, so the default renderer drops all attributes, the same
 	// as it does with NO_COLOR set.

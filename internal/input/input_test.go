@@ -12,6 +12,7 @@ import (
 	"testing"
 	"testing/iotest"
 	"unicode/utf16"
+	"unicode/utf8"
 )
 
 func TestRead(t *testing.T) {
@@ -41,7 +42,7 @@ func TestRead(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Read(strings.NewReader(tt.input), UTF8)
+			got, _, err := Read(strings.NewReader(tt.input), UTF8)
 			if err != nil {
 				t.Fatalf("Read: %v", err)
 			}
@@ -65,7 +66,7 @@ func TestReadInvalidJSON(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			docs, err := Read(strings.NewReader(tt.input), UTF8)
+			docs, _, err := Read(strings.NewReader(tt.input), UTF8)
 			if err == nil {
 				t.Fatalf("got %#v, want error", docs)
 			}
@@ -107,7 +108,7 @@ func TestReadUTF16(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Read(strings.NewReader(tt.input), UTF8)
+			got, _, err := Read(strings.NewReader(tt.input), UTF8)
 			if err != nil {
 				t.Fatalf("Read: %v", err)
 			}
@@ -144,7 +145,7 @@ func TestReadShiftJIS(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Read(strings.NewReader(tt.input), ShiftJIS)
+			got, _, err := Read(strings.NewReader(tt.input), ShiftJIS)
 			if err != nil {
 				t.Fatalf("Read: %v", err)
 			}
@@ -158,8 +159,100 @@ func TestReadShiftJIS(t *testing.T) {
 func TestReadShiftJISReadError(t *testing.T) {
 	wantErr := errors.New("disk failure")
 	r := io.MultiReader(strings.NewReader(`"long enough to pass the BOM check" `), iotest.ErrReader(wantErr))
-	if _, err := Read(r, ShiftJIS); !errors.Is(err, wantErr) {
+	if _, _, err := Read(r, ShiftJIS); !errors.Is(err, wantErr) {
 		t.Errorf("got error %v, want %v", err, wantErr)
+	}
+}
+
+func TestUTF8Checker(t *testing.T) {
+	inputs := []string{
+		"", "abc", "あいう", "a😀b",
+		"\xEF\xBF\xBD", // U+FFFD itself is valid.
+		"\xff", "a\x80b",
+		"abc\xE3\x81", "\xE3\x81", // Cut off at the end.
+		"\xE3\x81a", "\xF0\x9F\x98",
+		"\xED\xA0\x80", // A surrogate.
+		"\xC0\xAF",     // Overlong.
+	}
+	readers := map[string]func(io.Reader) io.Reader{
+		"whole":       func(r io.Reader) io.Reader { return r },
+		"byte a time": iotest.OneByteReader,
+		"half":        iotest.HalfReader,
+		"data and eof": func(r io.Reader) io.Reader {
+			return iotest.DataErrReader(r)
+		},
+	}
+	for _, s := range inputs {
+		for name, wrap := range readers {
+			c := &utf8Checker{r: wrap(strings.NewReader(s))}
+			got, err := io.ReadAll(c)
+			if err != nil || string(got) != s {
+				t.Fatalf("%q, %s: read %q, %v", s, name, got, err)
+			}
+			if want := !utf8.ValidString(s); c.invalid != want {
+				t.Errorf("%q, %s: invalid is %v, want %v", s, name, c.invalid, want)
+			}
+		}
+	}
+}
+
+func TestReadNotice(t *testing.T) {
+	sjis := "\"\x91\xbe\x98\x59\"" // "太郎" in Shift_JIS.
+	tests := []struct {
+		name   string
+		input  string
+		enc    Encoding
+		notice bool
+	}{
+		{"utf-8", `"太郎"`, UTF8, false},
+		{"replacement character", `"��"`, UTF8, false},
+		{"shift_jis read as utf-8", sjis, UTF8, true},
+		{"shift_jis read as shift_jis", sjis, ShiftJIS, false},
+		{"invalid utf-8 after a bom", "\xEF\xBB\xBF" + sjis, ShiftJIS, true},
+		{"unpaired surrogate in utf-16", "\xFF\xFE\x22\x00\x00\xD8\x22\x00", UTF8, false},
+		{"invalid in the second document", "1\n" + sjis, UTF8, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			docs, notice, err := Read(iotest.HalfReader(strings.NewReader(tt.input)), tt.enc)
+			if err != nil {
+				t.Fatalf("Read: %v", err)
+			}
+			if len(docs) == 0 {
+				t.Error("no documents")
+			}
+			if got := notice != nil; got != tt.notice {
+				t.Errorf("notice %v, want one: %v", notice, tt.notice)
+			}
+			if notice != nil && !errors.Is(notice, ErrInvalidUTF8) {
+				t.Errorf("notice is %v", notice)
+			}
+		})
+	}
+}
+
+func TestReadInvalidJSONAfterInvalidUTF8(t *testing.T) {
+	// "表" in Shift_JIS ends in 0x5C, which escapes the closing quote in UTF-8.
+	_, _, err := Read(strings.NewReader("{\"a\":\"\x95\x5c\"}"), UTF8)
+	if !errors.Is(err, ErrInvalidUTF8) || !strings.Contains(err.Error(), "invalid JSON in document 1") {
+		t.Errorf("got error %v", err)
+	}
+
+	// Valid UTF-8 gets no hint.
+	_, _, err = Read(strings.NewReader(`{"a":"表}`), UTF8)
+	if err == nil || errors.Is(err, ErrInvalidUTF8) {
+		t.Errorf("got error %v", err)
+	}
+}
+
+func TestReadFileNotice(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sjis.json")
+	if err := os.WriteFile(path, []byte("\"\x91\xbe\x98\x59\""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	docs, notice, err := ReadFile(path, UTF8)
+	if err != nil || !errors.Is(notice, ErrInvalidUTF8) || len(docs) != 1 {
+		t.Errorf("got %v, %v, %v", docs, notice, err)
 	}
 }
 
@@ -181,22 +274,22 @@ func TestParseEncoding(t *testing.T) {
 
 func TestReadUTF16Errors(t *testing.T) {
 	t.Run("odd number of bytes", func(t *testing.T) {
-		_, err := Read(strings.NewReader(utf16Bytes("1", binary.LittleEndian)+"\x00"), UTF8)
+		_, _, err := Read(strings.NewReader(utf16Bytes("1", binary.LittleEndian)+"\x00"), UTF8)
 		if !errors.Is(err, ErrOddUTF16) {
 			t.Errorf("got error %v, want ErrOddUTF16", err)
 		}
 	})
 	t.Run("invalid JSON", func(t *testing.T) {
 		// The offset is the same as for the UTF-8 input.
-		_, utf8Err := Read(strings.NewReader(`{"名":}`), UTF8)
-		_, err := Read(strings.NewReader(utf16Bytes(`{"名":}`, binary.LittleEndian)), UTF8)
+		_, _, utf8Err := Read(strings.NewReader(`{"名":}`), UTF8)
+		_, _, err := Read(strings.NewReader(utf16Bytes(`{"名":}`, binary.LittleEndian)), UTF8)
 		if err == nil || utf8Err == nil || err.Error() != utf8Err.Error() {
 			t.Errorf("got error %v, want %v", err, utf8Err)
 		}
 	})
 	t.Run("read error", func(t *testing.T) {
 		wantErr := errors.New("disk failure")
-		_, err := Read(io.MultiReader(strings.NewReader("\xFF\xFE1\x00"), iotest.ErrReader(wantErr)), UTF8)
+		_, _, err := Read(io.MultiReader(strings.NewReader("\xFF\xFE1\x00"), iotest.ErrReader(wantErr)), UTF8)
 		if !errors.Is(err, wantErr) {
 			t.Errorf("got error %v, want %v", err, wantErr)
 		}
@@ -207,13 +300,13 @@ func TestReadPropagatesReaderError(t *testing.T) {
 	wantErr := errors.New("boom")
 
 	t.Run("before any data", func(t *testing.T) {
-		if _, err := Read(iotest.ErrReader(wantErr), UTF8); !errors.Is(err, wantErr) {
+		if _, _, err := Read(iotest.ErrReader(wantErr), UTF8); !errors.Is(err, wantErr) {
 			t.Errorf("got error %v, want %v", err, wantErr)
 		}
 	})
 	t.Run("after a document", func(t *testing.T) {
 		r := io.MultiReader(strings.NewReader(`"long enough to pass the BOM check" `), iotest.ErrReader(wantErr))
-		_, err := Read(r, UTF8)
+		_, _, err := Read(r, UTF8)
 		if !errors.Is(err, wantErr) {
 			t.Errorf("got error %v, want %v", err, wantErr)
 		}
@@ -229,7 +322,7 @@ func TestReadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := ReadFile(path, UTF8)
+	got, _, err := ReadFile(path, UTF8)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -243,7 +336,7 @@ func TestReadFileErrors(t *testing.T) {
 	dir := t.TempDir()
 
 	t.Run("missing file", func(t *testing.T) {
-		if _, err := ReadFile(filepath.Join(dir, "missing.json"), UTF8); !errors.Is(err, os.ErrNotExist) {
+		if _, _, err := ReadFile(filepath.Join(dir, "missing.json"), UTF8); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("got error %v, want os.ErrNotExist", err)
 		}
 	})
@@ -252,7 +345,7 @@ func TestReadFileErrors(t *testing.T) {
 		if err := os.WriteFile(path, []byte(`{`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		_, err := ReadFile(path, UTF8)
+		_, _, err := ReadFile(path, UTF8)
 		if err == nil || !strings.Contains(err.Error(), path) {
 			t.Errorf("error %v does not name %s", err, path)
 		}

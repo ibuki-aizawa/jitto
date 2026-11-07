@@ -72,7 +72,7 @@ func run(args []string) int {
 		return fail(errors.New("stderr must be a terminal, because the screen is drawn there"))
 	}
 
-	docs, err := load(opts.path, opts.encoding)
+	docs, notice, err := load(opts.path, opts.encoding)
 	if err != nil {
 		return fail(err)
 	}
@@ -84,7 +84,11 @@ func run(args []string) int {
 	// looks at stdout, which is typically redirected.
 	lipgloss.SetDefaultRenderer(lipgloss.NewRenderer(os.Stderr))
 
-	final, err := tea.NewProgram(tui.New(docs), tea.WithOutput(os.Stderr), tea.WithAltScreen()).Run()
+	model := tui.New(docs)
+	if notice != nil {
+		model.SetNotice(notice.Error())
+	}
+	final, err := tea.NewProgram(model, tea.WithOutput(os.Stderr), tea.WithAltScreen()).Run()
 	switch {
 	case errors.Is(err, tea.ErrInterrupted):
 		return exitCanceled
@@ -173,7 +177,7 @@ func resolveVersion(injected, built string) string {
 	return strings.TrimPrefix(v, "v")
 }
 
-func load(path string, enc input.Encoding) ([]any, error) {
+func load(path string, enc input.Encoding) (docs []any, notice, err error) {
 	if path == "" {
 		return input.Read(os.Stdin, enc)
 	}

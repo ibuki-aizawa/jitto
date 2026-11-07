@@ -129,6 +129,9 @@ type Model struct {
 	state  state
 	slow   bool
 	errMsg string
+	// notice is about the input, such as invalid UTF-8. It takes the place of the
+	// help for the whole session.
+	notice string
 	// output is the last good result, the one on screen.
 	output string
 
@@ -208,6 +211,12 @@ func cursorStyle() lipgloss.Style {
 	r := lipgloss.NewRenderer(io.Discard)
 	r.SetColorProfile(termenv.ANSI)
 	return lipgloss.NewStyle().Renderer(r)
+}
+
+// SetNotice shows text in the status line in place of the help. Messages about
+// the expression, such as errors, still come first.
+func (m *Model) SetNotice(text string) {
+	m.notice = text
 }
 
 // Outcome returns the complete output and the expression if the user confirmed
@@ -728,6 +737,8 @@ func (m *Model) statusLine() string {
 		style, text = m.errStyle, sanitize(m.errMsg)
 	case m.state == stateTruncated:
 		style, text = m.noteStyle, truncatedText
+	case m.notice != "":
+		style, text = m.noteStyle, sanitize(m.notice)
 	}
 	return style.Inline(true).MaxWidth(m.width).Render(text)
 }
