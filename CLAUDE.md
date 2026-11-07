@@ -34,6 +34,7 @@ Windows 向けのインタラクティブ jq ツール。jq 式を入力する�
 
 - ビルド: `go build -o jitto.exe .`
 - テスト: `go test ./...`
+- E2E テスト（Windows のみ）: `go test -tags e2e ./e2e`（`-slow` を付けると、時間のかかるシナリオも実行する）
 - 静的解析: `go vet ./...`
 - フォーマット: `gofmt -w .`
 
