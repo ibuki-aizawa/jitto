@@ -389,6 +389,18 @@ func TestPowerShell51(t *testing.T) {
 		}
 	})
 
+	// With the UTF-8 code page and this setting, 5.1 starts the pipe with two UTF-8
+	// byte order marks.
+	t.Run("two byte order marks", func(t *testing.T) {
+		f := newFixture(t)
+		s := f.start(`powershell -NoProfile -Command "chcp 65001 > $null; $OutputEncoding = [Text.Encoding]::UTF8; Get-Content -Raw -Encoding UTF8 data.json | ConvertFrom-Json | ConvertTo-Json | & '{jitto}' > out.txt; exit $LASTEXITCODE"`)
+		s.showingDoc()
+		s.typeKeys(`."名前"`)
+		s.see(`"太郎"`)
+		s.send(keyEnter)
+		s.wantExit(0)
+	})
+
 	// The workaround the README gives for Japanese text.
 	t.Run("README workaround keeps Japanese", func(t *testing.T) {
 		f := newFixture(t)

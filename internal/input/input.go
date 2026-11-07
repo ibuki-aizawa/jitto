@@ -58,20 +58,26 @@ func ReadFile(path string) ([]any, error) {
 	return docs, nil
 }
 
-// skipBOM discards a leading UTF-8 byte order mark and rejects UTF-16 input.
+// skipBOM discards the UTF-8 byte order marks at the start and rejects UTF-16
+// input. There can be more than one: Windows PowerShell 5.1 writes two to a pipe
+// when $OutputEncoding is [Text.Encoding]::UTF8.
 func skipBOM(br *bufio.Reader) error {
-	head, err := br.Peek(len(utf8BOM))
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
+	for {
+		head, err := br.Peek(len(utf8BOM))
+		if err != nil && !errors.Is(err, io.EOF) {
+			return err
+		}
+		switch {
+		case bytes.Equal(head, utf8BOM):
+			if _, err := br.Discard(len(utf8BOM)); err != nil {
+				return err
+			}
+			continue
+		case bytes.HasPrefix(head, []byte{0xFF, 0xFE}), bytes.HasPrefix(head, []byte{0xFE, 0xFF}):
+			return ErrUTF16
+		}
+		return nil
 	}
-	switch {
-	case bytes.Equal(head, utf8BOM):
-		_, err := br.Discard(len(utf8BOM))
-		return err
-	case bytes.HasPrefix(head, []byte{0xFF, 0xFE}), bytes.HasPrefix(head, []byte{0xFE, 0xFF}):
-		return ErrUTF16
-	}
-	return nil
 }
 
 // describe adds the document number and, for syntax errors, the byte offset.

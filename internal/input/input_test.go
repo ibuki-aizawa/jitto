@@ -29,6 +29,10 @@ func TestRead(t *testing.T) {
 		{"short input", "1", []any{json.Number("1")}},
 		{"utf-8 bom", "\xEF\xBB\xBF" + `"x"`, []any{"x"}},
 		{"utf-8 bom only", "\xEF\xBB\xBF", []any{}},
+		// Windows PowerShell 5.1 with $OutputEncoding = [Text.Encoding]::UTF8.
+		{"two utf-8 boms", "\xEF\xBB\xBF\xEF\xBB\xBF" + `{"名前":"太郎"}`, []any{map[string]any{"名前": "太郎"}}},
+		{"three utf-8 boms", "\xEF\xBB\xBF\xEF\xBB\xBF\xEF\xBB\xBF1", []any{json.Number("1")}},
+		{"two utf-8 boms only", "\xEF\xBB\xBF\xEF\xBB\xBF", []any{}},
 		{"japanese", `{"名前":"太郎"}`, []any{map[string]any{"名前": "太郎"}}},
 		{"large integer keeps precision", `12345678901234567890`, []any{json.Number("12345678901234567890")}},
 		{"number keeps its form", `1.0`, []any{json.Number("1.0")}},
@@ -78,6 +82,7 @@ func TestReadUTF16(t *testing.T) {
 		{"little endian", "\xFF\xFE1\x00"},
 		{"big endian", "\xFE\xFF\x001"},
 		{"bom only", "\xFF\xFE"},
+		{"after a utf-8 bom", "\xEF\xBB\xBF\xFF\xFE1\x00"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
