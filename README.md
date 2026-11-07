@@ -4,6 +4,8 @@ Windows 向けのインタラクティブ jq ツールです。jq 式を入力�
 
 Go 製のシングルバイナリで、外部の jq は必要ありません。jq 式の評価には [gojq](https://github.com/itchyny/gojq) を使っています。
 
+![jitto のデモ](demo/demo.gif)
+
 ## インストール
 
 winget での配布は準備中です。

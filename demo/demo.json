@@ -1,0 +1,63 @@
+{
+  "store": {
+    "name": "Northwind Books",
+    "currency": "USD",
+    "opened": "2019-04-01"
+  },
+  "customers": [
+    { "id": 1, "name": "Alice Chen", "email": "alice@example.com", "tags": ["vip"] },
+    { "id": 2, "name": "Bob Smith", "email": "bob@example.com", "tags": [] },
+    { "id": 3, "name": "Carol Diaz", "email": "carol@example.com", "tags": ["newsletter"] },
+    { "id": 4, "name": "Dan Okafor", "email": "dan@example.com", "tags": ["vip", "newsletter"] }
+  ],
+  "orders": [
+    {
+      "id": 1001,
+      "customer_id": 1,
+      "status": "shipped",
+      "total": 42.5,
+      "items": [
+        { "title": "The Go Programming Language", "qty": 1, "price": 34.5 },
+        { "title": "Bookmark", "qty": 2, "price": 4 }
+      ]
+    },
+    {
+      "id": 1002,
+      "customer_id": 2,
+      "status": "pending",
+      "total": 18,
+      "items": [{ "title": "Pocket Notebook", "qty": 3, "price": 6 }]
+    },
+    {
+      "id": 1003,
+      "customer_id": 1,
+      "status": "shipped",
+      "total": 61.25,
+      "items": [{ "title": "Designing Data-Intensive Applications", "qty": 1, "price": 61.25 }]
+    },
+    {
+      "id": 1004,
+      "customer_id": 3,
+      "status": "cancelled",
+      "total": 25,
+      "items": [{ "title": "Tea Sampler", "qty": 1, "price": 25 }]
+    },
+    {
+      "id": 1005,
+      "customer_id": 4,
+      "status": "shipped",
+      "total": 89.9,
+      "items": [
+        { "title": "Structure and Interpretation of Computer Programs", "qty": 1, "price": 79.9 },
+        { "title": "Reading Lamp", "qty": 1, "price": 10 }
+      ]
+    },
+    {
+      "id": 1006,
+      "customer_id": 2,
+      "status": "pending",
+      "total": 12.75,
+      "items": [{ "title": "Gift Card", "qty": 1, "price": 12.75 }]
+    }
+  ]
+}
