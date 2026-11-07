@@ -27,6 +27,8 @@ curl https://example.com/data.json | jitto
 jitto data.json | Set-Content result.json
 ```
 
+`jitto --version`（`-V`）でバージョン、`jitto --help`（`-h`）でヘルプを表示します。
+
 上部の入力欄に jq 式を入力すると、下部のペインに結果が表示されます。Enter で確定すると、結果を stdout、式を stderr に出力して終了します。結果だけがパイプやリダイレクトに流れ、式は画面に残るので、スクリプトに転用できます。
 
 式がエラーのときは、直前の正常な結果を残したままエラーを表示します。この間は Enter を押しても確定しません。

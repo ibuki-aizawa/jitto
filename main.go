@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -21,6 +22,10 @@ const usage = `Usage:
   COMMAND | jitto
 
 Type a jq expression to see its result as you type.
+
+Options:
+  -h, --help         show this help
+  -V, --version      show the version
 
 Keys:
   Enter              print the result to stdout and the expression to stderr
@@ -37,20 +42,26 @@ const (
 	exitCanceled = 130
 )
 
+// version is set at release time with -ldflags "-X main.version=1.2.3".
+var version string
+
 func main() {
 	os.Exit(run(os.Args[1:]))
 }
 
 func run(args []string) int {
-	path, help, err := parseArgs(args)
+	opts, err := parseArgs(args)
 	switch {
 	case err != nil:
 		fmt.Fprintf(os.Stderr, "jitto: %v\n\n%s", err, usage)
 		return exitUsage
-	case help:
+	case opts.help:
 		fmt.Print(usage)
 		return exitOK
-	case path == "" && isTerminal(os.Stdin):
+	case opts.version:
+		fmt.Println("jitto", currentVersion())
+		return exitOK
+	case opts.path == "" && isTerminal(os.Stdin):
 		fmt.Fprint(os.Stderr, usage)
 		return exitUsage
 	}
@@ -59,7 +70,7 @@ func run(args []string) int {
 		return fail(errors.New("stderr must be a terminal, because the screen is drawn there"))
 	}
 
-	docs, err := load(path)
+	docs, err := load(opts.path)
 	if err != nil {
 		return fail(err)
 	}
@@ -90,23 +101,53 @@ func run(args []string) int {
 	return exitOK
 }
 
-// parseArgs returns the input file, or "" for standard input.
-func parseArgs(args []string) (path string, help bool, err error) {
+// options is the parsed command line.
+type options struct {
+	// path is the input file, or "" for standard input.
+	path    string
+	help    bool
+	version bool
+}
+
+func parseArgs(args []string) (options, error) {
 	for _, arg := range args {
 		switch {
 		case arg == "-h" || arg == "--help":
-			return "", true, nil
+			return options{help: true}, nil
+		case arg == "-V" || arg == "--version":
+			return options{version: true}, nil
 		case strings.HasPrefix(arg, "-") && arg != "-":
-			return "", false, fmt.Errorf("unknown option %s", arg)
+			return options{}, fmt.Errorf("unknown option %s", arg)
 		}
 	}
 	switch len(args) {
 	case 0:
-		return "", false, nil
+		return options{}, nil
 	case 1:
-		return args[0], false, nil
+		return options{path: args[0]}, nil
 	}
-	return "", false, errors.New("too many arguments")
+	return options{}, errors.New("too many arguments")
+}
+
+func currentVersion() string {
+	var built string
+	if info, ok := debug.ReadBuildInfo(); ok {
+		built = info.Main.Version
+	}
+	return resolveVersion(version, built)
+}
+
+// resolveVersion prefers the version set at release time, then the one recorded by
+// the Go toolchain, which is how "go install" and plain "go build" report theirs.
+func resolveVersion(injected, built string) string {
+	v := injected
+	if v == "" {
+		v = built
+	}
+	if v == "" || v == "(devel)" {
+		return "dev"
+	}
+	return strings.TrimPrefix(v, "v")
 }
 
 func load(path string) ([]any, error) {
