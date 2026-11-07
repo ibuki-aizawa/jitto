@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # gofmt requires LF, and Git on Windows runners checks out with CRLF by default.
+      - name: Keep line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+
+      - name: Check formatting
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Run gofmt on these files:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: |
+          go vet ./...
+          go vet -tags e2e ./e2e
+
+      - name: Unit tests
+        run: go test ./...
+
+      - name: E2E tests
+        run: go test -tags e2e ./e2e -v
+
+      # macOS and Linux are not released yet, but should keep compiling.
+      - name: Build for other platforms
+        run: |
+          GOOS=linux go build -o /dev/null .
+          GOOS=darwin go build -o /dev/null .
