@@ -407,11 +407,15 @@ func TestPowerShell51(t *testing.T) {
 	// Without UTF-8 settings, 5.1 can still pass Japanese text as code page 932.
 	// With the UTF-8 code page, it adds a UTF-8 byte order mark to the Shift_JIS
 	// text, so both code pages are tried.
+	//
+	// The file is read as code page 932 explicitly. "Get-Content -Encoding
+	// Default" uses the system code page, which is 932 only on Japanese Windows
+	// (the CI runner uses 1252).
 	for _, cp := range []string{"932", "65001"} {
 		t.Run("pipe as Shift_JIS with code page "+cp, func(t *testing.T) {
 			f := newFixture(t)
 			f.writeShiftJIS("sjis.json")
-			s := f.start(`powershell -NoProfile -Command "chcp ` + cp + ` > $null; $OutputEncoding = [Text.Encoding]::GetEncoding(932); Get-Content -Raw -Encoding Default sjis.json | & '{jitto}' --encoding sjis; exit $LASTEXITCODE"`)
+			s := f.start(`powershell -NoProfile -Command "chcp ` + cp + ` > $null; $OutputEncoding = [Text.Encoding]::GetEncoding(932); [IO.File]::ReadAllText((Resolve-Path sjis.json), [Text.Encoding]::GetEncoding(932)) | & '{jitto}' --encoding sjis; exit $LASTEXITCODE"`)
 			s.see(`"表": "①～"`)
 			s.wantConsoleLacks("not valid UTF-8")
 			s.typeKeys(`."名前"`)
