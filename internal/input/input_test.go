@@ -41,7 +41,7 @@ func TestRead(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Read(strings.NewReader(tt.input))
+			got, err := Read(strings.NewReader(tt.input), UTF8)
 			if err != nil {
 				t.Fatalf("Read: %v", err)
 			}
@@ -65,7 +65,7 @@ func TestReadInvalidJSON(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			docs, err := Read(strings.NewReader(tt.input))
+			docs, err := Read(strings.NewReader(tt.input), UTF8)
 			if err == nil {
 				t.Fatalf("got %#v, want error", docs)
 			}
@@ -107,7 +107,7 @@ func TestReadUTF16(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Read(strings.NewReader(tt.input))
+			got, err := Read(strings.NewReader(tt.input), UTF8)
 			if err != nil {
 				t.Fatalf("Read: %v", err)
 			}
@@ -118,24 +118,85 @@ func TestReadUTF16(t *testing.T) {
 	}
 }
 
+func TestReadShiftJIS(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  []any
+	}{
+		// 名前 and 太郎.
+		{"japanese", "{\"\x96\xbc\x91\x4f\":\"\x91\xbe\x98\x59\"}", []any{map[string]any{"名前": "太郎"}}},
+		// The second byte of 表 is 0x5C, the backslash in ASCII. It must not
+		// escape the closing quote.
+		{"second byte is a backslash", "\"\x95\x5c\"", []any{"表"}},
+		{"escape after a kanji", "\"\x95\x5c\\n\"", []any{"表\n"}},
+		// NEC and IBM extensions of code page 932: ① and 髙.
+		{"windows extensions", "[\"\x87\x40\",\"\xfb\xfc\"]", []any{[]any{"①", "髙"}}},
+		// The symbols that code page 932 maps differently from JIS X 0208, such as
+		// ～ (U+FF5E, not the wave dash U+301C) and － (U+FF0D).
+		{"symbols as windows maps them", "\"\x81\x60\x81\x61\x81\x7c\x81\x91\x81\x92\x81\xca\"", []any{"～∥－￠￡￢"}},
+		{"half-width katakana", "\"\xb1\"", []any{"ｱ"}},
+		{"ascii", `{"a":[1,true]}`, []any{map[string]any{"a": []any{json.Number("1"), true}}}},
+		{"invalid bytes", "\"\x81\"", []any{"�"}},
+		// A byte order mark wins over the encoding.
+		{"utf-8 bom", "\xEF\xBB\xBF\"名前\"", []any{"名前"}},
+		{"utf-16 bom", utf16Bytes(`"名前"`, binary.LittleEndian), []any{"名前"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Read(strings.NewReader(tt.input), ShiftJIS)
+			if err != nil {
+				t.Fatalf("Read: %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadShiftJISReadError(t *testing.T) {
+	wantErr := errors.New("disk failure")
+	r := io.MultiReader(strings.NewReader(`"long enough to pass the BOM check" `), iotest.ErrReader(wantErr))
+	if _, err := Read(r, ShiftJIS); !errors.Is(err, wantErr) {
+		t.Errorf("got error %v, want %v", err, wantErr)
+	}
+}
+
+func TestParseEncoding(t *testing.T) {
+	for name, want := range map[string]Encoding{
+		"utf-8": UTF8, "UTF8": UTF8,
+		"shift_jis": ShiftJIS, "Shift-JIS": ShiftJIS, "SJIS": ShiftJIS, "cp932": ShiftJIS, "Windows-31J": ShiftJIS,
+	} {
+		if got, err := ParseEncoding(name); err != nil || got != want {
+			t.Errorf("ParseEncoding(%q) = %v, %v; want %v", name, got, err, want)
+		}
+	}
+	for _, name := range []string{"", "euc-jp", "utf-16"} {
+		if _, err := ParseEncoding(name); err == nil {
+			t.Errorf("ParseEncoding(%q) succeeded", name)
+		}
+	}
+}
+
 func TestReadUTF16Errors(t *testing.T) {
 	t.Run("odd number of bytes", func(t *testing.T) {
-		_, err := Read(strings.NewReader(utf16Bytes("1", binary.LittleEndian) + "\x00"))
+		_, err := Read(strings.NewReader(utf16Bytes("1", binary.LittleEndian)+"\x00"), UTF8)
 		if !errors.Is(err, ErrOddUTF16) {
 			t.Errorf("got error %v, want ErrOddUTF16", err)
 		}
 	})
 	t.Run("invalid JSON", func(t *testing.T) {
 		// The offset is the same as for the UTF-8 input.
-		_, utf8Err := Read(strings.NewReader(`{"名":}`))
-		_, err := Read(strings.NewReader(utf16Bytes(`{"名":}`, binary.LittleEndian)))
+		_, utf8Err := Read(strings.NewReader(`{"名":}`), UTF8)
+		_, err := Read(strings.NewReader(utf16Bytes(`{"名":}`, binary.LittleEndian)), UTF8)
 		if err == nil || utf8Err == nil || err.Error() != utf8Err.Error() {
 			t.Errorf("got error %v, want %v", err, utf8Err)
 		}
 	})
 	t.Run("read error", func(t *testing.T) {
 		wantErr := errors.New("disk failure")
-		_, err := Read(io.MultiReader(strings.NewReader("\xFF\xFE1\x00"), iotest.ErrReader(wantErr)))
+		_, err := Read(io.MultiReader(strings.NewReader("\xFF\xFE1\x00"), iotest.ErrReader(wantErr)), UTF8)
 		if !errors.Is(err, wantErr) {
 			t.Errorf("got error %v, want %v", err, wantErr)
 		}
@@ -146,13 +207,13 @@ func TestReadPropagatesReaderError(t *testing.T) {
 	wantErr := errors.New("boom")
 
 	t.Run("before any data", func(t *testing.T) {
-		if _, err := Read(iotest.ErrReader(wantErr)); !errors.Is(err, wantErr) {
+		if _, err := Read(iotest.ErrReader(wantErr), UTF8); !errors.Is(err, wantErr) {
 			t.Errorf("got error %v, want %v", err, wantErr)
 		}
 	})
 	t.Run("after a document", func(t *testing.T) {
 		r := io.MultiReader(strings.NewReader(`"long enough to pass the BOM check" `), iotest.ErrReader(wantErr))
-		_, err := Read(r)
+		_, err := Read(r, UTF8)
 		if !errors.Is(err, wantErr) {
 			t.Errorf("got error %v, want %v", err, wantErr)
 		}
@@ -168,7 +229,7 @@ func TestReadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := ReadFile(path)
+	got, err := ReadFile(path, UTF8)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -182,7 +243,7 @@ func TestReadFileErrors(t *testing.T) {
 	dir := t.TempDir()
 
 	t.Run("missing file", func(t *testing.T) {
-		if _, err := ReadFile(filepath.Join(dir, "missing.json")); !errors.Is(err, os.ErrNotExist) {
+		if _, err := ReadFile(filepath.Join(dir, "missing.json"), UTF8); !errors.Is(err, os.ErrNotExist) {
 			t.Errorf("got error %v, want os.ErrNotExist", err)
 		}
 	})
@@ -191,7 +252,7 @@ func TestReadFileErrors(t *testing.T) {
 		if err := os.WriteFile(path, []byte(`{`), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		_, err := ReadFile(path)
+		_, err := ReadFile(path, UTF8)
 		if err == nil || !strings.Contains(err.Error(), path) {
 			t.Errorf("error %v does not name %s", err, path)
 		}

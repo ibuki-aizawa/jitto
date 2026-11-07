@@ -42,9 +42,20 @@ curl https://example.com/data.json | jitto
 
 # 確定した結果を次のコマンドへ渡す
 jitto data.json | Set-Content result.json
+
+# Shift_JIS のファイルを開く
+jitto --encoding sjis data.json
 ```
 
 `jitto --version`（`-V`）でバージョン、`jitto --help`（`-h`）でヘルプを表示します。
+
+### 文字コード
+
+入力は UTF-8 として読みます。先頭に BOM があるときは、BOM に従って UTF-8 か UTF-16 として読みます。
+
+Shift_JIS の入力は、`--encoding sjis` を付けて読みます（`--encoding=sjis` とも書けます）。名前は `shift_jis`、`sjis`、`cp932`、`windows-31j` のどれでもよく、大文字と小文字は区別しません。Windows で使われる Shift_JIS（コードページ 932）として読むので、①や髙などの機種依存文字も読めます。先頭に BOM があるときは、`--encoding` よりも BOM を優先します。
+
+結果は、入力の文字コードにかかわらず UTF-8 で出力します。
 
 上部の入力欄に jq 式を入力すると、下部のペインに結果が表示されます。Enter で確定すると、結果を stdout、式を stderr に出力して終了します。結果だけがパイプやリダイレクトに流れ、式は画面に残るので、スクリプトに転用できます。
 
@@ -107,7 +118,8 @@ jq と異なる点の多くは gojq の仕様によるものです。
   - `debug`、`stderr`、`input_filename`
   - `input`、`inputs`
 - `-r` などのコマンドラインオプションはありません。
-- 入力は UTF-8 か、BOM 付きの UTF-16 だけを読めます。BOM のない UTF-16 は読めないので、UTF-8 に変換してください。
+- 入力として読めるのは、UTF-8、BOM 付きの UTF-16、Shift_JIS（`--encoding sjis`）です。BOM のない UTF-16 や EUC-JP などは読めないので、UTF-8 に変換してください。
+- Shift_JIS の入力を `--encoding` なしで読むと、エラーにはならず、日本語が `�` に置き換わります。
 - 10000 段を超えてネストした結果は表示できません。
 
 jq と同じく、キーに日本語などを使うときは `."名前"` のように引用符で囲みます。`.名前` と入力すると、エラーと一緒に正しい書き方を表示します。
@@ -133,6 +145,13 @@ Windows PowerShell 5.1 は、外部コマンドとの間で文字コードを変
 ```powershell
 $OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
 Get-Content -Encoding UTF8 data.json | jitto | Set-Content -Encoding UTF8 result.json
+```
+
+UTF-8 に設定しない場合は、パイプの文字コードを Shift_JIS にして、`--encoding sjis` で受け取る方法もあります。
+
+```powershell
+$OutputEncoding = [Text.Encoding]::GetEncoding(932)
+Get-Content -Encoding UTF8 data.json | jitto --encoding sjis
 ```
 
 なお、5.1 の `>` で保存したファイルは BOM 付きの UTF-16 になります。jitto はこれもファイル引数で読み込めます。

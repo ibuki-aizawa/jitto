@@ -3,6 +3,8 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/ibuki-aizawa/jitto/internal/input"
 )
 
 func TestParseArgs(t *testing.T) {
@@ -25,6 +27,16 @@ func TestParseArgs(t *testing.T) {
 		{name: "lowercase v is not version", args: []string{"-v"}, wantErr: "unknown option -v"},
 		{name: "unknown option after a file", args: []string{"data.json", "-r"}, wantErr: "unknown option -r"},
 		{name: "too many arguments", args: []string{"a.json", "b.json"}, wantErr: "too many arguments"},
+		{name: "encoding", args: []string{"--encoding", "sjis", "data.json"}, want: options{path: "data.json", encoding: input.ShiftJIS}},
+		{name: "encoding after the file", args: []string{"data.json", "--encoding", "cp932"}, want: options{path: "data.json", encoding: input.ShiftJIS}},
+		{name: "encoding with =", args: []string{"--encoding=Shift_JIS"}, want: options{encoding: input.ShiftJIS}},
+		{name: "utf-8 encoding", args: []string{"--encoding", "utf-8"}, want: options{encoding: input.UTF8}},
+		{name: "the last encoding wins", args: []string{"--encoding=sjis", "--encoding=utf-8"}, want: options{encoding: input.UTF8}},
+		{name: "encoding value is not the file", args: []string{"--encoding", "sjis"}, want: options{encoding: input.ShiftJIS}},
+		{name: "encoding without a value", args: []string{"data.json", "--encoding"}, wantErr: "--encoding needs a value"},
+		{name: "empty encoding", args: []string{"--encoding="}, wantErr: "unknown encoding"},
+		{name: "unknown encoding", args: []string{"--encoding", "euc-jp"}, wantErr: `unknown encoding "euc-jp"`},
+		{name: "help wins over the encoding", args: []string{"--encoding", "sjis", "-h"}, want: options{help: true}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

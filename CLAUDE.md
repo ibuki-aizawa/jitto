@@ -12,10 +12,13 @@ Windows 向けのインタラクティブ jq ツール。jq 式を入力する�
 
 - jq エンジン: gojq（github.com/itchyny/gojq）をライブラリとして使用
 - TUI: Bubble Tea（github.com/charmbracelet/bubbletea）、bubbles（textinput, viewport）、lipgloss
+- 文字コードの変換: golang.org/x/text（Shift_JIS）。UTF-16 は標準ライブラリで変換する
 
 ## MVP の機能
 
 - ファイル引数（`jitto data.json`）または標準入力（`curl ... | jitto`）から JSON を読み込む
+  - 入力は UTF-8。先頭に BOM があれば UTF-8 / UTF-16 を判別する。`--encoding sjis` で Shift_JIS（CP932）として読む（BOM があれば BOM を優先）
+  - 結果は常に UTF-8 で出力する
 - 上部の入力欄に jq 式を入力すると、下部のペインに結果をリアルタイム表示する
 - 式がエラーのときは、直前の正常な結果を残したままエラーメッセージを表示する
 - カーソルの直前でキーを書きかけているとき（`.`、`.items[0].na`、`map(.na` など）は、その位置に流れてくる値のオブジェクトのキーを候補として表示する

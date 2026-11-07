@@ -26,6 +26,7 @@ import (
 	"unicode/utf16"
 
 	"github.com/UserExistsError/conpty"
+	"golang.org/x/text/encoding/japanese"
 )
 
 const (
@@ -403,6 +404,17 @@ func TestPowerShell51(t *testing.T) {
 		}
 	})
 
+	// Without UTF-8 settings, 5.1 can still pass Japanese text as code page 932.
+	t.Run("pipe as Shift_JIS", func(t *testing.T) {
+		f := newFixture(t)
+		s := f.start(`powershell -NoProfile -Command "$OutputEncoding = [Text.Encoding]::GetEncoding(932); Get-Content -Raw -Encoding UTF8 data.json | & '{jitto}' --encoding sjis; exit $LASTEXITCODE"`)
+		s.showingDoc()
+		s.typeKeys(`."名前"`)
+		s.see(`"太郎"`)
+		s.send(keyEnter)
+		s.wantExit(0)
+	})
+
 	// With the UTF-8 code page and this setting, 5.1 starts the pipe with two UTF-8
 	// byte order marks.
 	t.Run("two byte order marks", func(t *testing.T) {
@@ -751,6 +763,40 @@ func TestUTF16File(t *testing.T) {
 	s.wantExit(0)
 	if got := f.read("out.txt"); got != "\"太郎\"\n" {
 		t.Errorf("stdout is %q", got)
+	}
+}
+
+// writeShiftJIS saves the sample document with Japanese text as Shift_JIS.
+func (f *fixture) writeShiftJIS(name string) {
+	f.t.Helper()
+	// 表 ends in 0x5C, the backslash in ASCII.
+	s, err := japanese.ShiftJIS.NewEncoder().String(`{"名前":"太郎","表":"①～"}`)
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.write(name, s)
+}
+
+func TestShiftJIS(t *testing.T) {
+	tests := []struct{ name, cmd string }{
+		{"file", `cmd /c ""{jitto}" --encoding sjis sjis.json > out.txt"`},
+		{"pipe", `cmd /c "type sjis.json | "{jitto}" --encoding=cp932 > out.txt"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.writeShiftJIS("sjis.json")
+			s := f.start(tt.cmd)
+			s.see(`"表": "①～"`)
+			s.typeKeys(`."名前"`)
+			s.gone(`"表"`)
+			s.see(`"太郎"`)
+			s.send(keyEnter)
+			s.wantExit(0)
+			if got := f.read("out.txt"); got != "\"太郎\"\n" {
+				t.Errorf("stdout is %q", got)
+			}
+		})
 	}
 }
 

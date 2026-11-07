@@ -24,6 +24,8 @@ const usage = `Usage:
 Type a jq expression to see its result as you type.
 
 Options:
+  --encoding NAME    encoding of input without a byte order mark: utf-8
+                     (the default) or shift_jis (also sjis, cp932)
   -h, --help         show this help
   -V, --version      show the version
 
@@ -70,7 +72,7 @@ func run(args []string) int {
 		return fail(errors.New("stderr must be a terminal, because the screen is drawn there"))
 	}
 
-	docs, err := load(opts.path)
+	docs, err := load(opts.path, opts.encoding)
 	if err != nil {
 		return fail(err)
 	}
@@ -104,29 +106,50 @@ func run(args []string) int {
 // options is the parsed command line.
 type options struct {
 	// path is the input file, or "" for standard input.
-	path    string
-	help    bool
-	version bool
+	path     string
+	encoding input.Encoding
+	help     bool
+	version  bool
 }
 
 func parseArgs(args []string) (options, error) {
-	for _, arg := range args {
+	var opts options
+	var paths []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
 		switch {
 		case arg == "-h" || arg == "--help":
 			return options{help: true}, nil
 		case arg == "-V" || arg == "--version":
 			return options{version: true}, nil
+		case arg == "--encoding" || strings.HasPrefix(arg, "--encoding="):
+			name, ok := strings.CutPrefix(arg, "--encoding=")
+			if !ok {
+				if i+1 == len(args) {
+					return options{}, errors.New("--encoding needs a value")
+				}
+				i++
+				name = args[i]
+			}
+			enc, err := input.ParseEncoding(name)
+			if err != nil {
+				return options{}, err
+			}
+			opts.encoding = enc
 		case strings.HasPrefix(arg, "-") && arg != "-":
 			return options{}, fmt.Errorf("unknown option %s", arg)
+		default:
+			paths = append(paths, arg)
 		}
 	}
-	switch len(args) {
+	switch len(paths) {
 	case 0:
-		return options{}, nil
 	case 1:
-		return options{path: args[0]}, nil
+		opts.path = paths[0]
+	default:
+		return options{}, errors.New("too many arguments")
 	}
-	return options{}, errors.New("too many arguments")
+	return opts, nil
 }
 
 func currentVersion() string {
@@ -150,11 +173,11 @@ func resolveVersion(injected, built string) string {
 	return strings.TrimPrefix(v, "v")
 }
 
-func load(path string) ([]any, error) {
+func load(path string, enc input.Encoding) ([]any, error) {
 	if path == "" {
-		return input.Read(os.Stdin)
+		return input.Read(os.Stdin, enc)
 	}
-	return input.ReadFile(path)
+	return input.ReadFile(path, enc)
 }
 
 // isTerminal reports whether f is a character device, which is what a console is.
