@@ -18,13 +18,16 @@ Windows 向けのインタラクティブ jq ツール。jq 式を入力する�
 - ファイル引数（`jitto data.json`）または標準入力（`curl ... | jitto`）から JSON を読み込む
 - 上部の入力欄に jq 式を入力すると、下部のペインに結果をリアルタイム表示する
 - 式がエラーのときは、直前の正常な結果を残したままエラーメッセージを表示する
-- Enter で確定し、結果を stdout、式を stderr に出力して終了する
+- Enter で確定し、結果を stdout、式を stderr に出力して終了する（式がエラーの間は確定せず、エラーを表示したまま入力を続ける）
 - Ctrl+C で何も出力せずに終了する
 
 ## 実装上の注意
 
-- 標準入力から JSON を読んだ場合、キー入力は標準入力ではなくコンソールから読む必要がある（Bubble Tea の `tea.WithInputTTY()` を検討）。
-- 確定時の結果を stdout でパイプに流せるよう、TUI の描画は stderr に出す（`tea.WithOutput(os.Stderr)` を検討）。
+- 標準入力から JSON を読んだ場合、キー入力は標準入力ではなくコンソールから読む必要がある。
+  - Windows では `tea.WithInputTTY()` を使わない。Bubble Tea v1.3.10 は標準入力がパイプのとき、オプションなしでも内部で `CONIN$` を開き、終了時のクローズが読み取り待ちで止まる（`p.Run()` が次のキー入力まで返らない）。
+  - 代わりに、パイプの JSON を読み終えたあとで `CONIN$` を開き、`SetStdHandle` と `os.Stdin` を差し替えてから Bubble Tea を起動する。
+- 確定時の結果を stdout でパイプに流せるよう、TUI の描画は stderr に出す（`tea.WithOutput(os.Stderr)`）。
+- stdout をリダイレクトすると lipgloss の標準レンダラーは色を無効にするので、`lipgloss.NewRenderer(os.Stderr)` を使う。
 - 大きな JSON でも入力が引っかからないよう、評価はデバウンスする、または前回の評価をキャンセルできるようにする。
 
 ## 開発コマンド
