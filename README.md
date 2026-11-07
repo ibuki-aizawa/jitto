@@ -96,3 +96,9 @@ Get-Content -Encoding UTF8 data.json | jitto | Set-Content -Encoding UTF8 result
 なお、5.1 の `>` で保存したファイルは UTF-16 になるため、jitto では読み込めません。
 
 PowerShell 7 と cmd では、この問題は確認していません。
+
+## ライセンス
+
+MIT ライセンスです。詳しくは [LICENSE](LICENSE) を参照してください。
+
+jitto の実行ファイルには、Go と複数のオープンソースのライブラリが含まれています。それらのライセンスは、各リリースに添付する `THIRD_PARTY_NOTICES.txt` にまとめています。

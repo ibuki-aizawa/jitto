@@ -46,6 +46,13 @@ jobs:
       - name: E2E tests
         run: go test -tags e2e ./e2e -v
 
+      # Fails if a dependency of the release binary has a missing or unknown license.
+      - name: Check licenses
+        run: |
+          CGO_ENABLED=0 go build -trimpath -o jitto.exe .
+          go run ./tools/notices jitto.exe > THIRD_PARTY_NOTICES.txt
+          head -n 40 THIRD_PARTY_NOTICES.txt
+
       # macOS and Linux are not released yet, but should keep compiling.
       - name: Build for other platforms
         run: |
