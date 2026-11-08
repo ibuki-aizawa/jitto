@@ -78,14 +78,16 @@ func ParseEncoding(name string) (Encoding, error) {
 // notice is ErrInvalidUTF8 if the input is read as UTF-8 and is not valid UTF-8,
 // and nil otherwise. It does not make the documents unusable, unlike err. If
 // the input is not valid JSON, err wraps ErrInvalidUTF8 when invalid UTF-8 came
-// before the error.
+// before the error, and ErrPowerShellDisplay when the input looks like
+// PowerShell's display of an object.
 func Read(r io.Reader, enc Encoding) (docs []any, notice, err error) {
 	src, check, err := toUTF8(bufio.NewReader(r), enc)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	dec := json.NewDecoder(src)
+	rec := &headRecorder{r: src}
+	dec := json.NewDecoder(rec)
 	dec.UseNumber()
 
 	docs = []any{}
@@ -96,9 +98,16 @@ func Read(r io.Reader, enc Encoding) (docs []any, notice, err error) {
 			break
 		}
 		if err != nil {
+			// Before isDisplay reads past the error.
+			invalid := check != nil && check.invalid
+			var syntax *json.SyntaxError
+			display := len(docs) == 0 && errors.As(err, &syntax) && rec.isDisplay()
 			err = describe(err, len(docs)+1)
-			if check != nil && check.invalid {
+			if invalid {
 				err = fmt.Errorf("%w (%w)", err, ErrInvalidUTF8)
+			}
+			if display {
+				err = displayError{err}
 			}
 			return nil, nil, err
 		}

@@ -635,6 +635,16 @@ func TestPowerShell7(t *testing.T) {
 		s.wantConsoleContains(".a")
 	})
 
+	// An object, such as what Invoke-WebRequest returns, reaches jitto as the text
+	// PowerShell shows for it.
+	t.Run("object gets a hint", func(t *testing.T) {
+		f := newFixture(t)
+		s := f.start(`pwsh -NoProfile -Command "[pscustomobject]@{a = 1; b = 2; c = 3; d = 4; e = 5} | & '{jitto}'; exit $LASTEXITCODE"`)
+		s.wantExit(1)
+		s.wantConsoleContains("invalid JSON")
+		s.wantConsoleContains("(Invoke-WebRequest URL).Content | jitto")
+	})
+
 	t.Run("capture in a variable", func(t *testing.T) {
 		f := newFixture(t)
 		s := f.start(`pwsh -NoProfile -Command "$r = & '{jitto}' data.json; Set-Content -Path out.txt -Value $r; exit $LASTEXITCODE"`)

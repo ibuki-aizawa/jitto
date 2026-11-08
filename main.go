@@ -79,7 +79,7 @@ func run(args []string) int {
 
 	docs, notice, err := load(opts.path, opts.encoding)
 	if err != nil {
-		return fail(err)
+		return fail(withInputHint(err))
 	}
 	if err := useConsoleInput(); err != nil {
 		return fail(fmt.Errorf("open console input: %w", err))
