@@ -39,6 +39,9 @@ curl.exe https://example.com/data.json | jitto
 # Pass the confirmed result to the next command
 jitto data.json | Set-Content result.json
 
+# In PowerShell, pass the JSON text of a web response, not the object
+(Invoke-WebRequest https://example.com/data.json).Content | jitto
+
 # Write strings without quotes, like jq -r
 jitto -r data.json
 ```
@@ -147,7 +150,7 @@ A word is a run of key characters (letters, digits, `_`) or a run of symbols. In
 
 jitto reads UTF-8, and UTF-16 with a BOM. For Shift_JIS, add `--encoding sjis`. The output is always UTF-8.
 
-Piping non-ASCII text in PowerShell needs some settings. See [docs/encoding.md](docs/encoding.md) for those and the details of each encoding.
+Piping non-ASCII text in PowerShell needs some settings, and so does piping the response of `Invoke-WebRequest`. See [docs/encoding.md](docs/encoding.md) for those and the details of each encoding.
 
 ## Details
 

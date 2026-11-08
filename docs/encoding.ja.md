@@ -2,7 +2,7 @@
 
 [English](encoding.md) | **日本語**
 
-UTF-8 以外の入力の読み方と、PowerShell から日本語を含む JSON を渡す方法をまとめています。そのほかの使い方は [README](../README.ja.md) を参照してください。
+UTF-8 以外の入力の読み方と、PowerShell から日本語を含む JSON や Web の応答を渡す方法をまとめています。そのほかの使い方は [README](../README.ja.md) を参照してください。
 
 ## 入力
 
@@ -53,6 +53,29 @@ jitto --encoding sjis data.json   # Shift_JIS のファイル
 - cmd の `type data.json | jitto` は変換が起こらないので、そのまま使えます。Shift_JIS なら `--encoding sjis` を付けます。
 - PowerShell 5.1 の既定の `$OutputEncoding` は US-ASCII なので、設定しないと日本語は `??` になります。
 - PowerShell 5.1 の `>` で保存したファイルは BOM 付きの UTF-16 になりますが、jitto はこれもファイル引数で読み込めます。
+
+### Web の応答を渡す
+
+`Invoke-WebRequest` や `Invoke-RestMethod` の結果を、そのままパイプで渡すことはできません。PowerShell は外部コマンドに、JSON ではなく、画面に表示するときのテキストを渡すためです。長い値は途中で切られます。このとき Windows 版の jitto は、正しい渡し方を案内して終了します。
+
+代わりに、JSON のテキストを渡します。
+
+| 環境 | コマンド |
+|---|---|
+| PowerShell 7 | `(Invoke-WebRequest URL).Content \| jitto` |
+| PowerShell 5.1 | 先に `$OutputEncoding = [Text.Encoding]::UTF8` を設定してから `(Invoke-WebRequest URL -UseBasicParsing).Content \| jitto` |
+
+- `.Content` は、受け取った応答の本文そのままです。
+- `Invoke-RestMethod` は JSON を PowerShell のオブジェクトに変換します。`Invoke-RestMethod URL | ConvertTo-Json -Depth 100 | jitto` で JSON に戻せますが、元の JSON と変わることがあります。`-Depth` を付けないと 3 段目より深いオブジェクトは文字列になり、PowerShell 7 では要素が 1 つの配列がその要素だけになります。なるべく `.Content` を使ってください。
+- PowerShell 5.1 では `-UseBasicParsing` を付けます。付けないと、`Invoke-WebRequest` が「オブジェクト参照がオブジェクト インスタンスに設定されていません。」のようなエラーで失敗することがあります。
+- PowerShell 5.1 は、サーバーが文字コードを示さないとき（`Content-Type: application/json` だけのときなど）、応答の日本語を文字化けさせます。その場合は、受け取ったバイト列がそのまま残るよう、ファイルに保存してから開きます。
+
+  ```powershell
+  Invoke-WebRequest URL -UseBasicParsing -OutFile data.json
+  jitto data.json
+  ```
+
+`curl.exe` も使えます（`curl.exe -s URL | jitto`）。PowerShell 7 は、その出力をそのまま jitto に渡します。PowerShell 5.1 では、先に `$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8` を設定します。また 5.1 の `curl` は `Invoke-WebRequest` の別名なので、`curl.exe` と書きます。
 
 ### 結果を受け取る
 

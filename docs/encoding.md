@@ -2,7 +2,7 @@
 
 **English** | [日本語](encoding.ja.md)
 
-How jitto reads text that is not plain UTF-8, and how to pass Japanese text to it from PowerShell. For everything else, see the [README](../README.md).
+How jitto reads text that is not plain UTF-8, how to pass Japanese text to it from PowerShell, and how to pass it JSON from web requests. For everything else, see the [README](../README.md).
 
 ## Input
 
@@ -53,6 +53,29 @@ To use a pipe:
 - In cmd, `type data.json | jitto` passes the bytes unchanged. For Shift_JIS, add `--encoding sjis`.
 - The default `$OutputEncoding` of PowerShell 5.1 is US-ASCII, so without the setting above, Japanese text becomes `??`.
 - Files saved with `>` in PowerShell 5.1 are UTF-16 with a BOM. jitto reads them as a file argument.
+
+### Web requests
+
+Piping the result of `Invoke-WebRequest` or `Invoke-RestMethod` as it is does not work. PowerShell passes an external command the text it would show on screen, with long values cut short, not JSON. On Windows, jitto then exits with a hint.
+
+Pass the JSON text instead:
+
+| Shell | Command |
+|---|---|
+| PowerShell 7 | `(Invoke-WebRequest URL).Content \| jitto` |
+| PowerShell 5.1 | `$OutputEncoding = [Text.Encoding]::UTF8`, then `(Invoke-WebRequest URL -UseBasicParsing).Content \| jitto` |
+
+- `.Content` is the response body as it came.
+- `Invoke-RestMethod` turns the JSON into PowerShell objects. `Invoke-RestMethod URL | ConvertTo-Json -Depth 100 | jitto` turns them back, but the result can differ from the original: without `-Depth`, objects nested more than 2 levels deep become strings, and in PowerShell 7, an array with one element becomes the element itself. Prefer `.Content`.
+- In PowerShell 5.1, add `-UseBasicParsing`. Without it, `Invoke-WebRequest` can fail with "Object reference not set to an instance of an object."
+- PowerShell 5.1 garbles Japanese text in the response when the server does not name the charset, as with `Content-Type: application/json` alone. Save the response to a file instead, which keeps the bytes as they came:
+
+  ```powershell
+  Invoke-WebRequest URL -UseBasicParsing -OutFile data.json
+  jitto data.json
+  ```
+
+`curl.exe` works too: `curl.exe -s URL | jitto`. PowerShell 7 passes its output to jitto unchanged. In PowerShell 5.1, first set `$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8`, and write `curl.exe`, not `curl`, which is another name for `Invoke-WebRequest` there.
 
 ### Receiving the output
 

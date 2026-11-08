@@ -37,6 +37,9 @@ curl.exe https://example.com/data.json | jitto
 # 確定した結果を次のコマンドへ渡す
 jitto data.json | Set-Content result.json
 
+# PowerShell では、Web の応答をオブジェクトではなく JSON のテキストで渡す
+(Invoke-WebRequest https://example.com/data.json).Content | jitto
+
 # jq -r と同じく、文字列を引用符なしで出力する
 jitto -r data.json
 
@@ -148,7 +151,7 @@ macOS で Alt+R を使うには、ターミナルが Option キーを Meta と�
 
 入力は UTF-8 と、BOM 付きの UTF-16 を読めます。Shift_JIS の入力は、`--encoding sjis` を付けて読みます。結果は常に UTF-8 で出力します。
 
-PowerShell のパイプで日本語を含む JSON を渡すには、設定が必要です。その方法と、文字コードごとの詳しい扱いは [docs/encoding.ja.md](docs/encoding.ja.md) を参照してください。
+PowerShell のパイプで日本語を含む JSON や `Invoke-WebRequest` の応答を渡すには、設定や書き方の注意があります。その方法と、文字コードごとの詳しい扱いは [docs/encoding.ja.md](docs/encoding.ja.md) を参照してください。
 
 ## 動作の詳細
 
