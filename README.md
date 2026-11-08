@@ -20,7 +20,8 @@ The name comes from the Japanese word *jitto* (じっと), "to stare intently" �
 ## Features
 
 - **Autocomplete from your data**: jitto runs the expression on your JSON and suggests the keys that actually appear there, even inside `.[] | ...` or `map(...)`.
-- **Example filters, no AI**: Ctrl+T lists filters that fit the result, such as `map(select(.status == "shipped"))` or `group_by(.status)`, built from your keys and values on your machine.
+- **Example filters, no AI**: Ctrl+T lists filters that fit the result, such as `map(select(.status == "shipped"))` or `group_by(.status)`, built from your keys and values.
+- **Your data stays on your machine**: jitto never connects to the network. No AI service, no telemetry, no update checks. It reads your file or pipe, and nothing leaves your computer, so it is fine for logs and API responses you cannot share.
 - **Try before you type**: The result updates on every keystroke, colored like jq. Ctrl+N / Ctrl+P preview each candidate, and the last good result stays while the expression is incomplete.
 - **Made for scripts**: Enter prints the result to stdout and the filter to stderr, so you can pipe one and paste the other.
 - **One binary, Windows-first**: No jq needed; filters run on [gojq](https://github.com/itchyny/gojq). Works in Windows Terminal, PowerShell and cmd, even with Shift_JIS or UTF-16 input, and on macOS and Linux.

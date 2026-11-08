@@ -5,6 +5,7 @@ Windows 向けのインタラクティブ jq ツール。jq 式を入力する�
 ## 方針
 
 - Go で実装し、シングルバイナリで動作させる。外部の jq には依存しない。
+- 通信は一切しない（AI サービス、テレメトリー、更新の確認も入れない）。README で「データは手元で完結」と打ち出しているため、通信が必要な機能を検討するときは、まずユーザーに相談する。
 - winget（portable 形式）で配布する。バイナリは GitHub Releases で公開する。
 - 配布するバイナリは Windows の x64（amd64）と Arm64 向け。CI とリリースでは、それぞれネイティブのランナー（windows-latest、windows-11-arm）でテストとビルドを行う。macOS / Linux は当面 `go install` で案内する。
 - Windows（Windows Terminal / PowerShell / cmd）での動作を最優先する。macOS / Linux でも動けば望ましい。
