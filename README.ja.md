@@ -59,6 +59,16 @@ winget での配布は準備中です。
 Get-FileHash .\jitto-windows-amd64.exe
 ```
 
+### go install でインストールする
+
+Go 1.27 以降があれば、次のコマンドでインストールできます。
+
+```powershell
+go install github.com/ibuki-aizawa/jitto@latest
+```
+
+`jitto.exe` は `%USERPROFILE%\go\bin`（`$GOBIN` を設定していればそのフォルダー）に置かれます。このフォルダーは、Go のインストーラーが PATH に追加します。バージョンを指定するときは、`@latest` の代わりに `@v0.2.0` のように書きます。macOS や Linux でも使えます。
+
 ### ソースからビルドする
 
 Go 1.27 以降が必要です。

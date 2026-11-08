@@ -58,6 +58,16 @@ The executable is not code-signed. When you open it from Explorer for the first 
 Get-FileHash .\jitto-windows-amd64.exe
 ```
 
+### With go install
+
+If you have Go 1.27 or later:
+
+```powershell
+go install github.com/ibuki-aizawa/jitto@latest
+```
+
+This puts `jitto.exe` in `%USERPROFILE%\go\bin` (or `$GOBIN` if set), which the Go installer adds to your PATH. Use `@v0.2.0` instead of `@latest` to pick a version. It also works on macOS and Linux.
+
 ### From source
 
 Requires Go 1.27 or later.
