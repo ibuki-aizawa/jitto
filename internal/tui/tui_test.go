@@ -147,7 +147,7 @@ func TestStartShowsIdentity(t *testing.T) {
 	h := newHarness(t, doc())
 	h.start()
 	h.wantPane(`"a": "one"`)
-	h.wantPane(helpText)
+	h.wantHelp()
 }
 
 func TestTypingUpdatesResult(t *testing.T) {
@@ -236,7 +236,7 @@ func TestFixingTheExpressionClearsTheError(t *testing.T) {
 	h.start()
 	h.typeText(".[")
 	h.press(tea.KeyBackspace)
-	h.wantPane(helpText)
+	h.wantHelp()
 	if strings.Contains(h.m.View(), "unexpected") {
 		t.Errorf("error still shown:\n%s", h.m.View())
 	}
@@ -404,7 +404,7 @@ func TestEditWhileFinishingStopsIt(t *testing.T) {
 	h.settle(debounce)
 	h.wantNoOutcome()
 	h.wantPane("null")
-	h.wantPane(helpText)
+	h.wantHelp()
 }
 
 func TestCtrlCCancelsWithoutOutcome(t *testing.T) {
@@ -1314,4 +1314,13 @@ func manyLines(n int) []any {
 		docs[i] = json.Number("1")
 	}
 	return docs
+}
+
+// wantHelp checks that the status line shows the help, as much as fits.
+func (h *harness) wantHelp() {
+	h.t.Helper()
+	row := strings.Split(h.m.View(), "\n")[1]
+	if !strings.HasPrefix(helpText, row) || !strings.Contains(row, "Ctrl+T: examples") {
+		h.t.Errorf("status line is %q, want the help", row)
+	}
 }

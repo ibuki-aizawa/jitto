@@ -36,6 +36,7 @@ Options:
 Keys:
   Enter              print the result to stdout and the expression to stderr
   Ctrl+C             quit without printing anything
+  Ctrl+T             show example expressions for the result
   Alt+R              switch -r on or off
   Up, Down           scroll the result
   PgUp, PgDn         scroll the result by a page

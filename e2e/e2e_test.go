@@ -52,6 +52,7 @@ const (
 	keyCtrlP      = "\x10"
 	keyCtrlY      = "\x19"
 	keyCtrlW      = "\x17"
+	keyCtrlT      = "\x14"
 	keyCtrlLeft   = "\x1b[1;5D"
 	keyAltR       = "\x1br"
 
@@ -837,6 +838,38 @@ func TestCompletion(t *testing.T) {
 		t.Errorf("stdout is %q", got)
 	}
 	s.wantConsoleContains(".items")
+}
+
+func TestExamples(t *testing.T) {
+	f := newFixture(t)
+	s := f.start(`cmd /c ""{jitto}" ascii.json > out.txt"`)
+	s.see(helpShown)
+	s.typeKeys(".items")
+	s.see("Ctrl+T: examples")
+	s.send(keyCtrlT)
+	s.see("add           the total")
+	s.see("Ctrl+N Ctrl+P: try an example")
+
+	// Ctrl+N writes the example into the input, and the pane previews it.
+	s.send(keyCtrlN)
+	s.see("> .items | add\n")
+	s.send(keyEsc)
+	s.see("> .items\n")
+	s.gone("the total")
+
+	s.send(keyCtrlT)
+	s.see("add           the total")
+	s.send(keyCtrlN)
+	s.send(keyTab)
+	s.gone("the total")
+	s.see("> .items | add\n")
+	s.waitFor("result of .items | add", screenWait, func(string) bool { return s.scr.rows()[2] == "3" })
+	s.send(keyEnter)
+	s.wantExit(0)
+	if got := f.read("out.txt"); got != "3\n" {
+		t.Errorf("stdout is %q", got)
+	}
+	s.wantConsoleContains(".items | add")
 }
 
 // Ctrl+Y and quoting, with the keys read from the console that replaces the pipe.

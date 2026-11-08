@@ -53,7 +53,7 @@ const (
 	panStep = 8
 
 	// The least needed keys come last, where a narrow screen cuts them off.
-	helpText      = "Enter: confirm  Ctrl+C: cancel  Alt+R: raw  ↑↓ PgUp PgDn: scroll  Shift+←→: pan"
+	helpText      = "Enter: confirm  Ctrl+C: cancel  Ctrl+T: examples  Alt+R: raw  ↑↓ PgUp PgDn: scroll  Shift+←→: pan"
 	slowText      = "evaluating..."
 	finishingText = "evaluating all output... edit the expression to stop, Ctrl+C to quit"
 	truncatedText = "preview limited to 1 MiB; Enter outputs everything"
@@ -110,6 +110,7 @@ type Model struct {
 	docs     []any
 	run      evaluator
 	complete completer
+	suggest  suggester
 
 	debounce  time.Duration
 	slowAfter time.Duration
@@ -159,6 +160,15 @@ type Model struct {
 	// compTop is the index of the first candidate on screen.
 	compTop int
 
+	// examples is the list that Ctrl+T opens, or nil. See suggest.go.
+	examples *examples
+	// exSeq identifies the latest request for examples, like seq.
+	exSeq int
+	// exCancel stops the running request for examples, if any.
+	exCancel context.CancelFunc
+	// exNote says that Ctrl+T found no examples, until the next edit.
+	exNote string
+
 	confirmed bool
 }
 
@@ -201,6 +211,7 @@ func New(docs []any) *Model {
 		docs:          docs,
 		run:           eval.Eval,
 		complete:      eval.Complete,
+		suggest:       eval.Suggest,
 		debounce:      defaultDebounce,
 		slowAfter:     defaultSlowAfter,
 		input:         input,
@@ -279,6 +290,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m, m.startCompletion()
+	case examplesMsg:
+		m.handleExamples(msg)
+		return m, nil
 	case completionMsg:
 		if msg.seq == m.compSeq {
 			m.stopCompletion()
@@ -290,11 +304,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
+	// While the examples are shown, these keys go through them instead of the
+	// candidates. See suggest.go.
+	if m.examples != nil {
+		switch msg.String() {
+		case "ctrl+n":
+			return m.cycleExamples(1)
+		case "ctrl+p":
+			return m.cycleExamples(-1)
+		case "tab", "ctrl+y":
+			return m.acceptExample()
+		case "esc":
+			return m.closeExamples()
+		case "enter":
+			m.dropExamples()
+		}
+	}
+
 	switch msg.String() {
 	case "ctrl+c":
 		return m.quit()
 	case "enter":
 		return m.handleEnter()
+	case "ctrl+t":
+		m.exNote = ""
+		return m.toggleExamples()
 	case "up", "down", "pgup", "pgdown", "shift+left", "shift+right":
 		var cmd tea.Cmd
 		m.pane, cmd = m.pane.Update(msg)
@@ -361,6 +395,7 @@ func (m *Model) setInput(value string, cursor int) (before, head string) {
 func (m *Model) quit() tea.Cmd {
 	m.stopEvaluation()
 	m.stopCompletion()
+	m.stopExamples()
 	return tea.Quit
 }
 
@@ -393,6 +428,13 @@ func (m *Model) updateInput(msg tea.Msg) tea.Cmd {
 // Vim. Keys that change nothing do not: Windows reports pressing Ctrl on its own
 // as a key, so every Ctrl+N would end the cycle it is part of.
 func (m *Model) afterEdit(value, head string) tea.Cmd {
+	if m.input.Value() != value {
+		// Like the cycle, an edit keeps the example in the input.
+		if m.examples != nil {
+			m.dropExamples()
+		}
+		m.exNote = ""
+	}
 	cmd := m.schedulePreview(value)
 	if m.head() == head {
 		if m.input.Value() != value {
@@ -450,6 +492,9 @@ func (m *Model) stopCompletion() {
 
 // candidates returns the candidates on screen.
 func (m *Model) candidates() []eval.Candidate {
+	if m.examples != nil {
+		return nil
+	}
 	if m.cycle != nil {
 		return m.cycle.cands
 	}
@@ -723,10 +768,15 @@ func (m *Model) View() string {
 func (m *Model) paneView() string {
 	view := m.pane.View()
 	box, boxWidth := m.candidateBox()
+	column := m.listColumn
+	if m.examples != nil {
+		box, boxWidth = m.exampleBox()
+		column = m.exampleColumn
+	}
 	if len(box) == 0 {
 		return view
 	}
-	col := m.listColumn(boxWidth)
+	col := column(boxWidth)
 	lines := strings.Split(view, "\n")
 	for i, row := range box {
 		if i >= len(lines) {
@@ -858,6 +908,12 @@ func (m *Model) statusLine() string {
 	case m.errMsg != "":
 		// A failing expression keeps its message while the next edit is evaluated.
 		style, text = m.errStyle, sanitize(m.errMsg)
+	case m.examples != nil && m.examples.loading:
+		style, text = m.noteStyle, findingText
+	case m.examples != nil:
+		text = examplesHelpText
+	case m.exNote != "":
+		style, text = m.noteStyle, m.exNote
 	case m.state == stateTruncated:
 		style, text = m.noteStyle, truncatedText
 	case m.notice != "":
