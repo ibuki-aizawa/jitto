@@ -7,7 +7,9 @@
 
 **English** | [日本語](README.ja.md)
 
-An interactive jq for Windows. Type a jq expression and watch the result update as you type.
+**Interactive jq with autocomplete from your actual data.**
+
+See the result as you type, pick keys that are really there — even inside `map()` — and take the finished filter back to your script.
 
 The name comes from the Japanese word *jitto* (じっと), "to stare intently" — as in staring at your JSON until it makes sense.
 
@@ -22,7 +24,7 @@ The name comes from the Japanese word *jitto* (じっと), "to stare intently" �
 - **Keeps the last good result**: While the expression is incomplete or has an error, the previous result stays on screen with the error message.
 - **Fits into scripts**: Enter prints the result to stdout and the expression to stderr. Pipe the result to the next command, and copy the expression into your script.
 - **Raw strings, like jq -r**: Start with `-r`, or press Alt+R at any time to switch, and see the result change at once.
-- **Made for Windows**: Works in Windows Terminal, PowerShell and cmd. Reads UTF-8, UTF-16 with a BOM and Shift_JIS.
+- **Windows-first, cross-platform**: Works in Windows Terminal, PowerShell and cmd, and reads UTF-8, UTF-16 with a BOM and Shift_JIS. Also runs on macOS and Linux (install with `go install`); Windows is tested most thoroughly.
 - **A single binary**: No jq to install. jitto evaluates expressions with [gojq](https://github.com/itchyny/gojq).
 
 ## Quick start
@@ -132,6 +134,8 @@ When you start a key, as in `.` or `.items[0].na`, jitto lists the keys availabl
 | ← → etc. | Edit the input |
 
 The mouse wheel also scrolls the result.
+
+On macOS, Alt+R works only when the terminal sends Option as Meta: in Terminal, turn on "Use Option as Meta key" in the profile's Keyboard settings; in iTerm2, set the Option key to "Esc+".
 
 A word is a run of key characters (letters, digits, `_`) or a run of symbols. In `.items[0].name`, Ctrl+W deletes only `name` and leaves `.items[0].`, so you can pick another key.
 
