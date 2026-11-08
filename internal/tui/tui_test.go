@@ -20,6 +20,7 @@ type call struct {
 	ctx      context.Context
 	expr     string
 	maxBytes int
+	raw      bool
 }
 
 // harness drives a Model without a terminal: it plays the part of the Bubble Tea
@@ -47,7 +48,7 @@ func newHarness(t *testing.T, docs ...any) *harness {
 // useEvaluator installs fn, recording every call to it.
 func (h *harness) useEvaluator(fn evaluator) {
 	h.m.run = func(ctx context.Context, expr string, docs []any, opts eval.Options) (eval.Result, error) {
-		h.calls = append(h.calls, call{ctx, expr, opts.MaxBytes})
+		h.calls = append(h.calls, call{ctx, expr, opts.MaxBytes, opts.Raw})
 		return fn(ctx, expr, docs, opts)
 	}
 }
@@ -1112,12 +1113,93 @@ func TestResultColorsUnderCandidates(t *testing.T) {
 	}
 }
 
-// useRaw makes the evaluator write strings as they are, like jq -r.
+// useRaw writes strings as they are, like jq -r.
 func (h *harness) useRaw() {
+	h.m.setRaw(true)
+}
+
+func altR() tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r"), Alt: true}
+}
+
+func TestAltRTogglesRaw(t *testing.T) {
+	h := newHarness(t, map[string]any{"a": "x"})
+	h.start()
+	h.typeText(".a")
+	h.wantPane(`"x"`)
+
+	h.settle(h.send(altR()))
+	if got := h.m.input.View(); !strings.HasPrefix(stripANSI(got), rawPrompt+".a") {
+		t.Errorf("input is %q, want the prompt %q", got, rawPrompt)
+	}
+	if got := h.m.input.Value(); got != ".a" {
+		t.Errorf("Alt+R changed the input to %q", got)
+	}
+	if last := h.calls[len(h.calls)-1]; !last.raw || last.expr != ".a" {
+		t.Errorf("last evaluation is %+v, want .a with raw", last)
+	}
+	if got := h.paneLines()[0]; strings.TrimRight(got, " ") != "x" {
+		t.Errorf("pane shows %q, want x", got)
+	}
+
+	h.settle(h.send(altR()))
+	if got := h.m.input.View(); !strings.HasPrefix(stripANSI(got), prompt+".a") {
+		t.Errorf("input is %q, want the prompt %q", got, prompt)
+	}
+	if last := h.calls[len(h.calls)-1]; last.raw {
+		t.Errorf("last evaluation is %+v, want it without raw", last)
+	}
+	h.wantPane(`"x"`)
+}
+
+func TestEnterAfterAltROutputsRawStrings(t *testing.T) {
+	h := newHarness(t, map[string]any{"a": "x"})
+	h.start()
+	h.typeText(".a")
+	h.settle(h.send(altR()))
+	h.press(tea.KeyEnter)
+	output, expr, ok := h.m.Outcome()
+	if !ok || output != "x\n" || expr != ".a" {
+		t.Errorf("outcome is %q, %q, %v", output, expr, ok)
+	}
+}
+
+// Alt+R while Enter evaluates everything starts over, in the new mode, and does
+// not confirm.
+func TestAltRWhileFinishing(t *testing.T) {
+	h := newHarness(t, doc())
+	h.start()
 	h.useEvaluator(func(ctx context.Context, expr string, docs []any, opts eval.Options) (eval.Result, error) {
-		opts.Raw = true
-		return eval.Eval(ctx, expr, docs, opts)
+		if opts.MaxBytes != 0 {
+			return eval.Result{}, context.DeadlineExceeded
+		}
+		<-ctx.Done()
+		return eval.Result{}, ctx.Err()
 	})
+	h.typeText(".a")
+	cmd := h.send(tea.KeyMsg{Type: tea.KeyEnter})
+	if h.m.state != stateFinishing {
+		t.Fatalf("state %v after Enter, want finishing", h.m.state)
+	}
+	h.send(altR())
+	if h.m.state != stateEvaluating {
+		t.Errorf("state %v after Alt+R, want evaluating", h.m.state)
+	}
+	h.settle(cmd)
+	if h.quit {
+		t.Error("the abandoned evaluation confirmed")
+	}
+}
+
+func TestListIsBelowThePartialKeyWithRawPrompt(t *testing.T) {
+	h := newHarness(t, map[string]any{"items": map[string]any{"alpha": nil}})
+	h.useRaw()
+	h.start()
+	h.typeText(".items.al")
+	keyCol := lipgloss.Width(rawPrompt + ".items.")
+	if got := strings.Index(stripANSI(h.paneLines()[0]), " alpha "); got != keyCol-1 {
+		t.Errorf("list at column %d, want %d:\n%s", got, keyCol-1, h.m.View())
+	}
 }
 
 func TestRawStringsInPane(t *testing.T) {

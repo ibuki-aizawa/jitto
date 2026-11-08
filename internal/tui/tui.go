@@ -45,12 +45,15 @@ const (
 	ellipsis = "..."
 
 	prompt = "> "
+	// rawPrompt shows that strings are written as they are, like jq -r.
+	rawPrompt = "-r> "
 	// chromeHeight is the number of rows above the pane: the input and the status.
 	chromeHeight = 2
 	// panStep is the number of columns Shift+Left and Shift+Right move the pane.
 	panStep = 8
 
-	helpText      = "Enter: confirm  Ctrl+C: cancel  ↑↓ PgUp PgDn: scroll  Shift+←→: pan"
+	// The least needed keys come last, where a narrow screen cuts them off.
+	helpText      = "Enter: confirm  Ctrl+C: cancel  Alt+R: raw  ↑↓ PgUp PgDn: scroll  Shift+←→: pan"
 	slowText      = "evaluating..."
 	finishingText = "evaluating all output... edit the expression to stop, Ctrl+C to quit"
 	truncatedText = "preview limited to 1 MiB; Enter outputs everything"
@@ -139,6 +142,8 @@ type Model struct {
 	notice string
 	// result is the last good result, the one on screen.
 	result eval.Result
+	// raw writes strings as they are, like jq -r. Alt+R switches it.
+	raw bool
 
 	// comp holds the latest candidates. They may be for an earlier text before the
 	// cursor; Narrow decides which of them still apply.
@@ -297,6 +302,8 @@ func (m *Model) handleKey(msg tea.KeyMsg) tea.Cmd {
 		return m.cycleCandidates(-1)
 	case "esc":
 		return m.closeCandidates()
+	case "alt+r":
+		return m.toggleRaw()
 	}
 
 	switch msg.String() {
@@ -558,9 +565,9 @@ func (m *Model) stopEvaluation() {
 }
 
 func (m *Model) evaluate(ctx context.Context, seq, maxBytes int) tea.Cmd {
-	run, expr, docs := m.run, m.input.Value(), m.docs
+	run, expr, docs, raw := m.run, m.input.Value(), m.docs, m.raw
 	return func() tea.Msg {
-		res, err := run(ctx, expr, docs, eval.Options{MaxBytes: maxBytes})
+		res, err := run(ctx, expr, docs, eval.Options{MaxBytes: maxBytes, Raw: raw})
 		return resultMsg{seq: seq, res: res, err: err}
 	}
 }
@@ -670,14 +677,39 @@ func visible(line string, color bool) string {
 
 func (m *Model) resize(width, height int) {
 	m.width = width
-	// One extra cell keeps the cursor visible at the end of the text.
-	m.input.Width = max(width-lipgloss.Width(prompt)-1, 1)
+	m.fitInput()
 	m.pane.Width = width
 	m.pane.Height = max(height-chromeHeight, 0)
 	// Reapply the offset limits for the new height.
 	m.pane.SetYOffset(m.pane.YOffset)
 	// A line that now fits could otherwise stay panned, with no key to undo it.
 	m.pane.SetXOffset(0)
+}
+
+// fitInput sizes the input to the screen, after the prompt.
+func (m *Model) fitInput() {
+	// One extra cell keeps the cursor visible at the end of the text.
+	m.input.Width = max(m.width-lipgloss.Width(m.input.Prompt)-1, 1)
+}
+
+// setRaw turns jq -r on or off: strings are written as they are, without
+// quotes. The prompt shows the mode.
+func (m *Model) setRaw(raw bool) {
+	m.raw = raw
+	m.input.Prompt = prompt
+	if raw {
+		m.input.Prompt = rawPrompt
+	}
+	m.fitInput()
+}
+
+// toggleRaw switches jq -r and evaluates the expression again, as an edit does.
+// That includes abandoning the evaluation started by Enter: its output would be
+// in the other mode.
+func (m *Model) toggleRaw() tea.Cmd {
+	m.setRaw(!m.raw)
+	seq := m.nextRequest(stateEvaluating)
+	return tea.Tick(m.debounce, func(time.Time) tea.Msg { return debounceMsg{seq: seq} })
 }
 
 // View implements tea.Model.
@@ -715,7 +747,7 @@ func (m *Model) paneView() string {
 func (m *Model) listColumn(boxWidth int) int {
 	head, start := m.keyStart()
 	// The box has one column of padding before the text.
-	col := lipgloss.Width(prompt) + lipgloss.Width(head[:start]) - 1
+	col := lipgloss.Width(m.input.Prompt) + lipgloss.Width(head[:start]) - 1
 	return max(min(col, m.width-boxWidth), 0)
 }
 
