@@ -17,7 +17,7 @@ The name comes from the Japanese word *jitto* (じっと), "to stare intently" �
 
 ## Features
 
-- **Live results**: The result pane updates on every keystroke.
+- **Live results**: The result pane updates on every keystroke, colored like jq.
 - **Key completion from your data**: jitto runs the expression on your JSON and suggests the keys that actually appear there, even inside `.[] | ...` or `map(...)`. Ctrl+N / Ctrl+P write each candidate into the input and preview its result.
 - **Keeps the last good result**: While the expression is incomplete or has an error, the previous result stays on screen with the error message.
 - **Fits into scripts**: Enter prints the result to stdout and the expression to stderr. Pipe the result to the next command, and copy the expression into your script.
@@ -76,6 +76,10 @@ Without `FILE`, jitto reads JSON from standard input. `jitto --version` (`-V`) s
 Type a jq expression in the input at the top; the result appears in the pane below. An empty expression means `.`.
 
 Press Enter to confirm. jitto prints the result to stdout and the expression to stderr, and exits. Only the result flows into a pipe or redirect, and the expression stays on screen. While the expression has an error, Enter does nothing.
+
+### Colors
+
+The result is colored like jq: keys in bold blue, strings in green, `null` in gray, and brackets in bold. On Enter, the result printed to the console has the same colors, and a pipe or file gets plain JSON. Set `NO_COLOR` to turn colors off, or `CLICOLOR_FORCE=1` to keep them in a pipe.
 
 ### Key completion
 
