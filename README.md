@@ -51,13 +51,17 @@ winget support is coming soon.
 
 ### From GitHub Releases
 
-1. Download `jitto-windows-amd64.exe` from [Releases](https://github.com/ibuki-aizawa/jitto/releases/latest).
+1. Download the file for your PC from [Releases](https://github.com/ibuki-aizawa/jitto/releases/latest):
+   - `jitto-windows-amd64.exe` for most PCs, with an Intel or AMD processor
+   - `jitto-windows-arm64.exe` for Arm PCs, such as those with a Snapdragon processor
+
+   To check, open Settings > System > About and look at "System type".
 2. Rename it to `jitto.exe` if you like, and put it in a folder on your PATH.
 
 The executable is not code-signed. When you open it from Explorer for the first time, Windows may show "Unknown publisher"; choose "Run" to continue. To check the download, compare it with `SHA256SUMS` attached to the release:
 
 ```powershell
-Get-FileHash .\jitto-windows-amd64.exe
+Get-FileHash .\jitto-windows-*.exe
 ```
 
 ### With go install

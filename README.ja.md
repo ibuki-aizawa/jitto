@@ -52,13 +52,17 @@ winget での配布は準備中です。
 
 ### GitHub Releases からダウンロードする
 
-1. [Releases](https://github.com/ibuki-aizawa/jitto/releases/latest) から `jitto-windows-amd64.exe` をダウンロードします。
+1. [Releases](https://github.com/ibuki-aizawa/jitto/releases/latest) から、PC に合ったファイルをダウンロードします。
+   - `jitto-windows-amd64.exe`: Intel や AMD のプロセッサーを使った、たいていの PC 向け
+   - `jitto-windows-arm64.exe`: Snapdragon などの Arm のプロセッサーを使った PC 向け
+
+   どちらか分からないときは、「設定」>「システム」>「バージョン情報」の「システムの種類」で確かめられます。
 2. 必要に応じて `jitto.exe` に名前を変え、PATH の通ったフォルダーに置きます。
 
 実行ファイルにはコード署名がありません。エクスプローラーから初めて開くときに「不明な発行元」と表示されることがあります。続けるには「実行」を選んでください。ファイルが壊れていないか確かめたいときは、リリースに添付した `SHA256SUMS` と照合します。
 
 ```powershell
-Get-FileHash .\jitto-windows-amd64.exe
+Get-FileHash .\jitto-windows-*.exe
 ```
 
 ### go install でインストールする
