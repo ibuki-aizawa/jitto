@@ -25,32 +25,66 @@ const maxDepth = 10000
 // ErrTooDeep is returned when a result is nested deeper than can be formatted.
 var ErrTooDeep = fmt.Errorf("result is nested too deeply (limit %d)", maxDepth)
 
+// Options changes how Eval formats its output.
+type Options struct {
+	// MaxBytes, if positive, limits the output. See Eval.
+	MaxBytes int
+	// Raw writes strings as they are, without quotes, like jq -r. Other values
+	// are still JSON.
+	Raw bool
+}
+
 // Result is the formatted output of an expression.
 type Result struct {
-	// Output holds the results as indented JSON, each followed by a newline.
+	// Output holds the results, each followed by a newline: indented JSON, or with
+	// Options.Raw, the text of a string.
 	Output string
-	// Truncated reports that evaluation stopped early because of maxBytes.
+	// Raw lists the lines of Output that hold the text of a string rather than
+	// JSON, in order. It is empty unless Options.Raw is set.
+	Raw []Lines
+	// Truncated reports that evaluation stopped early because of MaxBytes.
 	Truncated bool
+}
+
+// Lines is a range of lines, counted from 0: From is the first, and To is just
+// past the last.
+type Lines struct {
+	From, To int
+}
+
+// IsRaw reports whether line i of Output holds the text of a string.
+func (r Result) IsRaw(i int) bool {
+	for _, l := range r.Raw {
+		if i < l.From {
+			return false
+		}
+		if i < l.To {
+			return true
+		}
+	}
+	return false
 }
 
 // Eval runs expr against each document in docs, in order. An empty expression
 // means ".".
 //
-// If maxBytes is positive, evaluation stops once the output exceeds it, and the
-// output is cut to at most maxBytes at a line or, failing that, character
+// If opts.MaxBytes is positive, evaluation stops once the output exceeds it, and
+// the output is cut to at most MaxBytes at a line or, failing that, character
 // boundary. A truncated result may hide a later error, so it does not prove that
 // the expression succeeds on all of its input.
 //
 // On any error the result is empty: partial output is never returned. If ctx ends
 // first, the error wraps ctx.Err(). Eval does not modify docs and may be called
 // concurrently with the same docs.
-func Eval(ctx context.Context, expr string, docs []any, maxBytes int) (Result, error) {
+func Eval(ctx context.Context, expr string, docs []any, opts Options) (Result, error) {
 	code, err := compile(expr)
 	if err != nil {
 		return Result{}, err
 	}
 
 	var out bytes.Buffer
+	var raw []Lines
+	lines := 0
 	for _, doc := range docs {
 		iter := code.RunWithContext(ctx, doc)
 		for {
@@ -61,15 +95,42 @@ func Eval(ctx context.Context, expr string, docs []any, maxBytes int) (Result, e
 			if err, ok := v.(error); ok {
 				return Result{}, err
 			}
-			if err := appendValue(&out, v); err != nil {
-				return Result{}, err
+			if s, ok := v.(string); ok && opts.Raw {
+				out.WriteString(s)
+				out.WriteByte('\n')
+				n := strings.Count(s, "\n") + 1
+				raw = append(raw, Lines{lines, lines + n})
+				lines += n
+			} else {
+				start := out.Len()
+				if err := appendValue(&out, v); err != nil {
+					return Result{}, err
+				}
+				lines += bytes.Count(out.Bytes()[start:], []byte{'\n'})
 			}
-			if maxBytes > 0 && out.Len() > maxBytes {
-				return Result{Output: truncate(out.Bytes(), maxBytes), Truncated: true}, nil
+			if opts.MaxBytes > 0 && out.Len() > opts.MaxBytes {
+				output := truncate(out.Bytes(), opts.MaxBytes)
+				return Result{Output: output, Raw: clipLines(raw, output), Truncated: true}, nil
 			}
 		}
 	}
-	return Result{Output: out.String()}, nil
+	return Result{Output: out.String(), Raw: raw}, nil
+}
+
+// clipLines drops the parts of ranges past the end of output.
+func clipLines(ranges []Lines, output string) []Lines {
+	n := strings.Count(output, "\n")
+	if output != "" && !strings.HasSuffix(output, "\n") {
+		n++ // A last line cut in the middle.
+	}
+	var clipped []Lines
+	for _, l := range ranges {
+		if l.From >= n {
+			break
+		}
+		clipped = append(clipped, Lines{l.From, min(l.To, n)})
+	}
+	return clipped
 }
 
 func compile(expr string) (*gojq.Code, error) {

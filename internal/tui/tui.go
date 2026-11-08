@@ -96,7 +96,7 @@ type (
 )
 
 // evaluator is the signature of eval.Eval.
-type evaluator func(ctx context.Context, expr string, docs []any, maxBytes int) (eval.Result, error)
+type evaluator func(ctx context.Context, expr string, docs []any, opts eval.Options) (eval.Result, error)
 
 // completer is the signature of eval.Complete.
 type completer func(ctx context.Context, text string, docs []any) eval.Completion
@@ -559,7 +559,7 @@ func (m *Model) stopEvaluation() {
 func (m *Model) evaluate(ctx context.Context, seq, maxBytes int) tea.Cmd {
 	run, expr, docs := m.run, m.input.Value(), m.docs
 	return func() tea.Msg {
-		res, err := run(ctx, expr, docs, maxBytes)
+		res, err := run(ctx, expr, docs, eval.Options{MaxBytes: maxBytes})
 		return resultMsg{seq: seq, res: res, err: err}
 	}
 }

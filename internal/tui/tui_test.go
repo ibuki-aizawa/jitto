@@ -46,9 +46,9 @@ func newHarness(t *testing.T, docs ...any) *harness {
 
 // useEvaluator installs fn, recording every call to it.
 func (h *harness) useEvaluator(fn evaluator) {
-	h.m.run = func(ctx context.Context, expr string, docs []any, maxBytes int) (eval.Result, error) {
-		h.calls = append(h.calls, call{ctx, expr, maxBytes})
-		return fn(ctx, expr, docs, maxBytes)
+	h.m.run = func(ctx context.Context, expr string, docs []any, opts eval.Options) (eval.Result, error) {
+		h.calls = append(h.calls, call{ctx, expr, opts.MaxBytes})
+		return fn(ctx, expr, docs, opts)
 	}
 }
 
@@ -332,8 +332,8 @@ func TestEnterOnTruncatedPreviewOutputsEverything(t *testing.T) {
 func TestEnterAfterTimeoutEvaluatesWithoutLimit(t *testing.T) {
 	h := newHarness(t, doc())
 	h.start()
-	h.useEvaluator(func(ctx context.Context, expr string, docs []any, maxBytes int) (eval.Result, error) {
-		if maxBytes != 0 {
+	h.useEvaluator(func(ctx context.Context, expr string, docs []any, opts eval.Options) (eval.Result, error) {
+		if opts.MaxBytes != 0 {
 			return eval.Result{}, context.DeadlineExceeded
 		}
 		return eval.Result{Output: "\"slow\"\n"}, nil
@@ -350,7 +350,7 @@ func TestFinishingFailureStaysOpen(t *testing.T) {
 	h := newHarness(t, doc())
 	h.start()
 	h.typeText(".a")
-	h.useEvaluator(func(context.Context, string, []any, int) (eval.Result, error) {
+	h.useEvaluator(func(context.Context, string, []any, eval.Options) (eval.Result, error) {
 		return eval.Result{}, errors.New("late failure")
 	})
 	h.send(runes("x"))

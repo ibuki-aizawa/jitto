@@ -49,7 +49,7 @@ func TestEval(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Eval(context.Background(), tt.expr, tt.docs, 0)
+			got, err := Eval(context.Background(), tt.expr, tt.docs, Options{})
 			if err != nil {
 				t.Fatalf("Eval: %v", err)
 			}
@@ -60,6 +60,91 @@ func TestEval(t *testing.T) {
 				t.Error("unexpectedly truncated")
 			}
 		})
+	}
+}
+
+func TestEvalRaw(t *testing.T) {
+	tests := []struct {
+		name string
+		expr string
+		want string
+		raw  []Lines
+	}{
+		{"string without quotes", `"a"`, "a\n", []Lines{{0, 1}}},
+		{"escapes are decoded", `"tab\there\nnext"`, "tab\there\nnext\n", []Lines{{0, 2}}},
+		{"empty string is an empty line", `""`, "\n", []Lines{{0, 1}}},
+		{"trailing newline adds a line", `"a\n"`, "a\n\n", []Lines{{0, 2}}},
+		{"quotes inside stay", `"say \"hi\""`, "say \"hi\"\n", []Lines{{0, 1}}},
+		{"other values stay JSON", `1, null, [1], {a: "x"}`, "1\nnull\n[\n  1\n]\n{\n  \"a\": \"x\"\n}\n", nil},
+		{"strings inside values stay JSON", `["a"]`, "[\n  \"a\"\n]\n", nil},
+		{"mixed", `{a: 1}, "x\ny", 2, "z"`, "{\n  \"a\": 1\n}\nx\ny\n2\nz\n", []Lines{{3, 5}, {6, 7}}},
+		{"no output", "empty", "", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Eval(context.Background(), tt.expr, []any{nil}, Options{Raw: true})
+			if err != nil {
+				t.Fatalf("Eval: %v", err)
+			}
+			if got.Output != tt.want {
+				t.Errorf("output %q, want %q", got.Output, tt.want)
+			}
+			if !reflect.DeepEqual(got.Raw, tt.raw) {
+				t.Errorf("raw lines %v, want %v", got.Raw, tt.raw)
+			}
+		})
+	}
+
+	t.Run("off by default", func(t *testing.T) {
+		got, err := Eval(context.Background(), `"a"`, []any{nil}, Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Output != "\"a\"\n" || got.Raw != nil {
+			t.Errorf("got %+v", got)
+		}
+	})
+}
+
+func TestEvalRawTruncated(t *testing.T) {
+	tests := []struct {
+		name     string
+		maxBytes int
+		want     string
+		raw      []Lines
+	}{
+		// "ab\ncd\n" + "1\n" + "efgh\n" is 13 bytes.
+		{"cut after a raw string", 7, "ab\ncd\n", []Lines{{0, 2}}},
+		{"cut inside a raw string", 4, "ab\n", []Lines{{0, 1}}},
+		{"cut inside a raw line", 2, "ab", []Lines{{0, 1}}},
+		// The cut prefers the end of a line, so the last string is dropped.
+		{"cut inside the last string", 12, "ab\ncd\n1\n", []Lines{{0, 2}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := Eval(context.Background(), `"ab\ncd", 1, "efgh"`, []any{nil}, Options{Raw: true, MaxBytes: tt.maxBytes})
+			if err != nil {
+				t.Fatalf("Eval: %v", err)
+			}
+			if !got.Truncated {
+				t.Fatal("not truncated")
+			}
+			if got.Output != tt.want {
+				t.Errorf("output %q, want %q", got.Output, tt.want)
+			}
+			if !reflect.DeepEqual(got.Raw, tt.raw) {
+				t.Errorf("raw lines %v, want %v", got.Raw, tt.raw)
+			}
+		})
+	}
+}
+
+func TestIsRaw(t *testing.T) {
+	r := Result{Raw: []Lines{{1, 3}, {5, 6}}}
+	for i, want := range []bool{false, true, true, false, false, true, false} {
+		if got := r.IsRaw(i); got != want {
+			t.Errorf("IsRaw(%d) = %v, want %v", i, got, want)
+		}
 	}
 }
 
@@ -80,14 +165,14 @@ func TestEvalErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Eval(context.Background(), tt.expr, []any{obj()}, 0)
+			got, err := Eval(context.Background(), tt.expr, []any{obj()}, Options{})
 			if err == nil {
 				t.Fatalf("got %+v, want error", got)
 			}
 			if !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("error %q does not contain %q", err, tt.want)
 			}
-			if got != (Result{}) {
+			if !reflect.DeepEqual(got, Result{}) {
 				t.Errorf("got non-empty result %+v alongside error", got)
 			}
 		})
@@ -122,7 +207,7 @@ func TestEvalSuggestsQuotingNonASCIIKeys(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Eval(context.Background(), tt.expr, []any{nil}, 0)
+			_, err := Eval(context.Background(), tt.expr, []any{nil}, Options{})
 			if err == nil {
 				t.Fatal("got no error")
 			}
@@ -140,7 +225,7 @@ func TestEvalSuggestsQuotingNonASCIIKeys(t *testing.T) {
 				t.Errorf("error %q does not suggest %s", err, tt.want)
 			}
 			// The suggestion has to work.
-			if _, err := Eval(context.Background(), tt.want, []any{map[string]any{}}, 0); err != nil {
+			if _, err := Eval(context.Background(), tt.want, []any{map[string]any{}}, Options{}); err != nil {
 				t.Errorf("suggestion %s fails: %v", tt.want, err)
 			}
 		})
@@ -148,11 +233,11 @@ func TestEvalSuggestsQuotingNonASCIIKeys(t *testing.T) {
 }
 
 func TestEvalErrorInLaterDocumentDiscardsOutput(t *testing.T) {
-	got, err := Eval(context.Background(), ".a", []any{map[string]any{"a": "x"}, "not an object"}, 0)
+	got, err := Eval(context.Background(), ".a", []any{map[string]any{"a": "x"}, "not an object"}, Options{})
 	if err == nil {
 		t.Fatalf("got %+v, want error", got)
 	}
-	if got != (Result{}) {
+	if !reflect.DeepEqual(got, Result{}) {
 		t.Errorf("got non-empty result %+v alongside error", got)
 	}
 }
@@ -174,7 +259,7 @@ func TestEvalTruncation(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Eval(context.Background(), tt.expr, []any{nil}, tt.maxBytes)
+			got, err := Eval(context.Background(), tt.expr, []any{nil}, Options{MaxBytes: tt.maxBytes})
 			if err != nil {
 				t.Fatalf("Eval: %v", err)
 			}
@@ -203,7 +288,7 @@ func TestEvalCancellation(t *testing.T) {
 
 			done := make(chan error, 1)
 			go func() {
-				_, err := Eval(ctx, expr, []any{nil}, 0)
+				_, err := Eval(ctx, expr, []any{nil}, Options{})
 				done <- err
 			}()
 			select {
@@ -220,7 +305,7 @@ func TestEvalCancellation(t *testing.T) {
 	t.Run("already canceled", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		if _, err := Eval(ctx, ".", []any{nil}, 0); !errors.Is(err, context.Canceled) {
+		if _, err := Eval(ctx, ".", []any{nil}, Options{}); !errors.Is(err, context.Canceled) {
 			t.Errorf("got error %v, want context.Canceled", err)
 		}
 	})
@@ -236,7 +321,7 @@ func TestEvalDepthLimit(t *testing.T) {
 	}
 
 	t.Run("at the limit", func(t *testing.T) {
-		if _, err := Eval(context.Background(), ".", []any{deep(maxDepth)}, 0); err != nil {
+		if _, err := Eval(context.Background(), ".", []any{deep(maxDepth)}, Options{}); err != nil {
 			t.Errorf("Eval: %v", err)
 		}
 	})
@@ -246,13 +331,13 @@ func TestEvalDepthLimit(t *testing.T) {
 		"inside objects": map[string]any{"a": deep(maxDepth)},
 	} {
 		t.Run(name, func(t *testing.T) {
-			if _, err := Eval(context.Background(), ".", []any{v}, 0); !errors.Is(err, ErrTooDeep) {
+			if _, err := Eval(context.Background(), ".", []any{v}, Options{}); !errors.Is(err, ErrTooDeep) {
 				t.Errorf("got error %v, want ErrTooDeep", err)
 			}
 		})
 	}
 	t.Run("built by the expression", func(t *testing.T) {
-		_, err := Eval(context.Background(), "reduce range(1000000) as $i (null; [.])", []any{nil}, 0)
+		_, err := Eval(context.Background(), "reduce range(1000000) as $i (null; [.])", []any{nil}, Options{})
 		if !errors.Is(err, ErrTooDeep) {
 			t.Errorf("got error %v, want ErrTooDeep", err)
 		}
@@ -262,7 +347,7 @@ func TestEvalDepthLimit(t *testing.T) {
 func TestEvalDoesNotModifyDocuments(t *testing.T) {
 	docs := []any{obj()}
 	for _, expr := range []string{`.name = "x"`, ".items[0] = 9", `del(.big)`, ".items |= map(. + 1)", "to_entries"} {
-		if _, err := Eval(context.Background(), expr, docs, 0); err != nil {
+		if _, err := Eval(context.Background(), expr, docs, Options{}); err != nil {
 			t.Fatalf("Eval(%q): %v", expr, err)
 		}
 	}
@@ -277,7 +362,7 @@ func TestEvalConcurrentlyOnSameDocuments(t *testing.T) {
 	for range 8 {
 		wg.Go(func() {
 			for range 100 {
-				got, err := Eval(context.Background(), ".big", docs, 0)
+				got, err := Eval(context.Background(), ".big", docs, Options{})
 				if err != nil || got.Output != "12345678901234567890\n" {
 					t.Errorf("got %+v, %v", got, err)
 					return
