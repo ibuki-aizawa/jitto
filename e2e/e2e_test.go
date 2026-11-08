@@ -19,7 +19,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -311,40 +310,40 @@ func needCommand(t *testing.T, name string) {
 	}
 }
 
-// powerShellWait is how long needPowerShellInConPTY gives Windows PowerShell to
-// run a command. Its first start on a fresh machine takes several seconds.
+// powerShellWait is how long Windows PowerShell may take to start and run jitto.
+//
+// On the Arm runner of GitHub Actions, the Arm64 powershell.exe took 3 to 4
+// seconds for every start, never getting faster as the x64 one does, and the
+// scenarios timed out with a blank screen before jitto drew anything.
 const powerShellWait = time.Minute
 
-// needPowerShellInConPTY checks that Windows PowerShell runs a command under
-// ConPTY, as the scenarios do, and starts it once so that they do not wait for
-// its first start.
-//
-// On the Arm runner of GitHub Actions (Windows 11 build 26200), powershell.exe
-// starts outside ConPTY, but under ConPTY it prints nothing after the console
-// setup and never runs its command, while cmd and pwsh work. That is outside
-// jitto, and the scenarios check how PowerShell 5.1 encodes pipes, which does not
-// depend on the architecture, so they are skipped there. Elsewhere, the same
-// failure fails the test.
-func needPowerShellInConPTY(t *testing.T) {
+// needPowerShell checks that Windows PowerShell runs a pipeline like the
+// scenarios' under ConPTY, and logs how long it takes.
+func needPowerShell(t *testing.T) {
 	t.Helper()
 	needCommand(t, "powershell")
 	f := newFixture(t)
 	start := time.Now()
 	// The output differs from the command line, which the title can show.
-	s := f.start(`powershell -NoProfile -Command "'ps' + '-ready ' + $env:PROCESSOR_ARCHITECTURE"`)
-	for time.Since(start) < powerShellWait {
-		if strings.Contains(s.scr.text(), "ps-ready") {
-			t.Logf("powershell ran under ConPTY in %v", time.Since(start).Round(time.Millisecond))
-			s.wantExit(0)
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	msg := fmt.Sprintf("powershell did not run a command under ConPTY in %v (%s)", powerShellWait, s.state())
-	if runtime.GOARCH == "arm64" {
-		t.Skip(msg)
-	}
-	t.Fatal(msg)
+	s := f.start(`powershell -NoProfile -Command "Get-Content ascii.json | Measure-Object | Out-Null; 'ps' + '-ready ' + $env:PROCESSOR_ARCHITECTURE"`)
+	s.waitFor("powershell runs a pipeline", powerShellWait, func(t string) bool {
+		return strings.Contains(t, "ps-ready")
+	})
+	t.Logf("powershell ran a pipeline under ConPTY in %v", time.Since(start).Round(time.Millisecond))
+	s.wantExit(0)
+}
+
+// startPowerShell starts a command line of Windows PowerShell that runs jitto,
+// and waits until jitto draws its screen, which may take long. See powerShellWait.
+func (f *fixture) startPowerShell(cmdline string) *session {
+	f.t.Helper()
+	start := time.Now()
+	s := f.start(cmdline)
+	s.waitFor("jitto starts", powerShellWait, func(string) bool {
+		return strings.HasPrefix(s.scr.rows()[0], "> ")
+	})
+	f.t.Logf("jitto started in %v", time.Since(start).Round(time.Millisecond))
+	return s
 }
 
 func needSlow(t *testing.T) {
@@ -525,11 +524,11 @@ func TestPipedStdinIsIgnoredWithFileArgument(t *testing.T) {
 }
 
 func TestPowerShell51(t *testing.T) {
-	needPowerShellInConPTY(t)
+	needPowerShell(t)
 
 	t.Run("pipe and redirect", func(t *testing.T) {
 		f := newFixture(t)
-		s := f.start(`powershell -NoProfile -Command "Get-Content ascii.json | & '{jitto}' > out.txt; exit $LASTEXITCODE"`)
+		s := f.startPowerShell(`powershell -NoProfile -Command "Get-Content ascii.json | & '{jitto}' > out.txt; exit $LASTEXITCODE"`)
 		s.selectA()
 		s.send(keyEnter)
 		s.wantExit(0)
@@ -541,7 +540,7 @@ func TestPowerShell51(t *testing.T) {
 	// ">" writes UTF-16 LE with a byte order mark.
 	t.Run("file saved with >", func(t *testing.T) {
 		f := newFixture(t)
-		s := f.start(`powershell -NoProfile -Command "Get-Content -Raw -Encoding UTF8 data.json > saved.json; & '{jitto}' saved.json; exit $LASTEXITCODE"`)
+		s := f.startPowerShell(`powershell -NoProfile -Command "Get-Content -Raw -Encoding UTF8 data.json > saved.json; & '{jitto}' saved.json; exit $LASTEXITCODE"`)
 		s.showingDoc()
 		s.typeKeys(`."名前"`)
 		s.see(`"太郎"`)
@@ -563,7 +562,7 @@ func TestPowerShell51(t *testing.T) {
 		t.Run("pipe as Shift_JIS with code page "+cp, func(t *testing.T) {
 			f := newFixture(t)
 			f.writeShiftJIS("sjis.json")
-			s := f.start(`powershell -NoProfile -Command "chcp ` + cp + ` > $null; $OutputEncoding = [Text.Encoding]::GetEncoding(932); [IO.File]::ReadAllText((Resolve-Path sjis.json), [Text.Encoding]::GetEncoding(932)) | & '{jitto}' --encoding sjis; exit $LASTEXITCODE"`)
+			s := f.startPowerShell(`powershell -NoProfile -Command "chcp ` + cp + ` > $null; $OutputEncoding = [Text.Encoding]::GetEncoding(932); [IO.File]::ReadAllText((Resolve-Path sjis.json), [Text.Encoding]::GetEncoding(932)) | & '{jitto}' --encoding sjis; exit $LASTEXITCODE"`)
 			s.see(`"表": "①～"`)
 			s.wantConsoleLacks("not valid UTF-8")
 			s.typeKeys(`."名前"`)
@@ -577,7 +576,7 @@ func TestPowerShell51(t *testing.T) {
 	// byte order marks.
 	t.Run("two byte order marks", func(t *testing.T) {
 		f := newFixture(t)
-		s := f.start(`powershell -NoProfile -Command "chcp 65001 > $null; $OutputEncoding = [Text.Encoding]::UTF8; Get-Content -Raw -Encoding UTF8 data.json | ConvertFrom-Json | ConvertTo-Json | & '{jitto}' > out.txt; exit $LASTEXITCODE"`)
+		s := f.startPowerShell(`powershell -NoProfile -Command "chcp 65001 > $null; $OutputEncoding = [Text.Encoding]::UTF8; Get-Content -Raw -Encoding UTF8 data.json | ConvertFrom-Json | ConvertTo-Json | & '{jitto}' > out.txt; exit $LASTEXITCODE"`)
 		s.showingDoc()
 		s.typeKeys(`."名前"`)
 		s.see(`"太郎"`)
@@ -588,7 +587,7 @@ func TestPowerShell51(t *testing.T) {
 	// The workaround docs/encoding.md gives for Japanese text.
 	t.Run("documented workaround keeps Japanese", func(t *testing.T) {
 		f := newFixture(t)
-		s := f.start(`powershell -NoProfile -Command "$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Content -Encoding UTF8 data.json | & '{jitto}' | Set-Content -Encoding UTF8 out.txt; exit $LASTEXITCODE"`)
+		s := f.startPowerShell(`powershell -NoProfile -Command "$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Content -Encoding UTF8 data.json | & '{jitto}' | Set-Content -Encoding UTF8 out.txt; exit $LASTEXITCODE"`)
 		s.showingDoc()
 		s.typeKeys(`."名前"`)
 		s.see(`"太郎"`)
