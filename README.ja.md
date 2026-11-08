@@ -89,7 +89,7 @@ Go 1.27 以降があれば、次のコマンドでインストールできます
 go install github.com/ibuki-aizawa/jitto@latest
 ```
 
-`jitto.exe` は `%USERPROFILE%\go\bin`（`$GOBIN` を設定していればそのフォルダー）に置かれます。このフォルダーは、Go のインストーラーが PATH に追加します。バージョンを指定するときは、`@latest` の代わりに `@v0.3.0` のように書きます。macOS や Linux でも使えます。
+`jitto.exe` は `%USERPROFILE%\go\bin`（`$GOBIN` を設定していればそのフォルダー）に置かれます。このフォルダーは、Go のインストーラーが PATH に追加します。バージョンを指定するときは、`@latest` の代わりに `@v0.4.0` のように書きます。macOS や Linux でも使えます。
 
 ### ソースからビルドする
 

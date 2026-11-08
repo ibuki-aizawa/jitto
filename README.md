@@ -88,7 +88,7 @@ If you have Go 1.27 or later:
 go install github.com/ibuki-aizawa/jitto@latest
 ```
 
-This puts `jitto.exe` in `%USERPROFILE%\go\bin` (or `$GOBIN` if set), which the Go installer adds to your PATH. Use `@v0.3.0` instead of `@latest` to pick a version. It also works on macOS and Linux.
+This puts `jitto.exe` in `%USERPROFILE%\go\bin` (or `$GOBIN` if set), which the Go installer adds to your PATH. Use `@v0.4.0` instead of `@latest` to pick a version. It also works on macOS and Linux.
 
 ### From source
 
