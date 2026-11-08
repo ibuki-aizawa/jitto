@@ -310,6 +310,23 @@ func needCommand(t *testing.T, name string) {
 	}
 }
 
+// warmUpPowerShell starts Windows PowerShell once before the scenarios. Its
+// first start on a fresh machine can take longer than a scenario waits: on the
+// Arm runner of GitHub Actions, the scenarios timed out with a blank screen
+// while powershell.exe was still starting.
+func warmUpPowerShell(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+	defer cancel()
+	start := time.Now()
+	out, err := exec.CommandContext(ctx, "powershell", "-NoProfile", "-Command",
+		`"$($PSVersionTable.PSVersion) $env:PROCESSOR_ARCHITECTURE"`).CombinedOutput()
+	if err != nil {
+		t.Fatalf("powershell did not start in %v: %v\n%s", time.Since(start).Round(time.Second), err, out)
+	}
+	t.Logf("powershell %s started in %v", strings.TrimSpace(string(out)), time.Since(start).Round(time.Millisecond))
+}
+
 func needSlow(t *testing.T) {
 	t.Helper()
 	if !*slow {
@@ -489,6 +506,7 @@ func TestPipedStdinIsIgnoredWithFileArgument(t *testing.T) {
 
 func TestPowerShell51(t *testing.T) {
 	needCommand(t, "powershell")
+	warmUpPowerShell(t)
 
 	t.Run("pipe and redirect", func(t *testing.T) {
 		f := newFixture(t)
