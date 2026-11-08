@@ -21,6 +21,7 @@ The name comes from the Japanese word *jitto* (じっと), "to stare intently" �
 - **Key completion from your data**: jitto runs the expression on your JSON and suggests the keys that actually appear there, even inside `.[] | ...` or `map(...)`. Ctrl+N / Ctrl+P write each candidate into the input and preview its result.
 - **Keeps the last good result**: While the expression is incomplete or has an error, the previous result stays on screen with the error message.
 - **Fits into scripts**: Enter prints the result to stdout and the expression to stderr. Pipe the result to the next command, and copy the expression into your script.
+- **Raw strings, like jq -r**: Start with `-r`, or press Alt+R at any time to switch, and see the result change at once.
 - **Made for Windows**: Works in Windows Terminal, PowerShell and cmd. Reads UTF-8, UTF-16 with a BOM and Shift_JIS.
 - **A single binary**: No jq to install. jitto evaluates expressions with [gojq](https://github.com/itchyny/gojq).
 
@@ -35,6 +36,9 @@ curl https://example.com/data.json | jitto
 
 # Pass the confirmed result to the next command
 jitto data.json | Set-Content result.json
+
+# Write strings without quotes, like jq -r
+jitto -r data.json
 ```
 
 Type an expression, then press Enter to print the result, or Ctrl+C to quit without output.
@@ -67,8 +71,8 @@ go build -o jitto.exe .
 ## Usage
 
 ```
-jitto [--encoding NAME] FILE
-COMMAND | jitto [--encoding NAME]
+jitto [-r] [--encoding NAME] FILE
+COMMAND | jitto [-r] [--encoding NAME]
 ```
 
 Without `FILE`, jitto reads JSON from standard input. `jitto --version` (`-V`) shows the version and `jitto --help` (`-h`) shows the help.
@@ -80,6 +84,14 @@ Press Enter to confirm. jitto prints the result to stdout and the expression to 
 ### Colors
 
 The result is colored like jq: keys in bold blue, strings in green, `null` in gray, and brackets in bold. On Enter, the result printed to the console has the same colors, and a pipe or file gets plain JSON. Set `NO_COLOR` to turn colors off, or `CLICOLOR_FORCE=1` to keep them in a pipe.
+
+### Raw strings (-r)
+
+With `-r` (`--raw-output`), strings in the result are written as they are, without quotes, as in jq: `"one\ntwo"` becomes two lines, `one` and `two`. Only strings at the top of the result change; arrays, objects and numbers stay JSON.
+
+Press Alt+R to switch `-r` on or off at any time. The result is evaluated again, and the prompt shows `-r> ` while `-r` is on. Enter outputs the result in the mode on screen.
+
+Raw strings have no colors. In the result pane, a tab becomes spaces and other control characters are shown as `^[` (ESC) and the like, so that a string cannot break the screen. stdout gets the string unchanged.
 
 ### Key completion
 
@@ -97,6 +109,7 @@ When you start a key, as in `.` or `.items[0].na`, jitto lists the keys availabl
 |---|---|
 | Enter | Print the result and exit |
 | Ctrl+C | Exit without output |
+| Alt+R | Switch `-r` (raw strings) on or off |
 | ↑ ↓ | Scroll the result by one line |
 | PgUp PgDn | Scroll the result by one page |
 | Shift+← Shift+→ | Scroll the result sideways |
@@ -162,7 +175,7 @@ Most differences from jq come from gojq.
 
 - Object keys are printed in sorted order; the input order is not kept.
 - These are not available: `keys_unsorted`, `$__loc__`, `debug`, `stderr`, `input_filename`, `input`, `inputs`.
-- There are no command-line options such as `-r`.
+- Of the jq command-line options, only `-r` is available. Others, such as `-c` and `-j`, are not.
 - Input must be UTF-8, UTF-16 with a BOM, or Shift_JIS (`--encoding sjis`). Convert other encodings, such as UTF-16 without a BOM, to UTF-8 first.
 - Reading Shift_JIS without `--encoding` turns non-ASCII text into `�`. jitto then shows a notice suggesting `--encoding sjis`. Some characters can also make the JSON invalid; the error message includes the same hint.
 - Results nested deeper than 10,000 levels cannot be shown.
