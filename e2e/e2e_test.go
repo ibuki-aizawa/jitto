@@ -22,6 +22,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf16"
@@ -141,6 +142,8 @@ type session struct {
 	pty    *conpty.ConPty
 	scr    *screen
 	exited bool
+	// received counts the bytes of output, escape sequences included.
+	received atomic.Int64
 }
 
 // start runs a command line in the fixture's directory. In the command line,
@@ -158,6 +161,7 @@ func (f *fixture) start(cmdline string) *session {
 		for {
 			n, err := pty.Read(buf)
 			if n > 0 {
+				s.received.Add(int64(n))
 				s.scr.write(buf[:n])
 			}
 			if err != nil {
@@ -213,7 +217,22 @@ func (s *session) waitFor(what string, timeout time.Duration, cond func(screenTe
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	s.t.Fatalf("timed out waiting: %s\n%s", what, s.scr.dump())
+	s.t.Fatalf("timed out waiting: %s (%s)\n%s", what, s.state(), s.scr.dump())
+}
+
+// state describes the process and its output, for failures where the screen
+// shows nothing useful.
+func (s *session) state() string {
+	received := fmt.Sprintf("%d bytes received", s.received.Load())
+	if s.exited {
+		return "exited, " + received
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	if code, err := s.pty.Wait(ctx); err == nil {
+		return fmt.Sprintf("exited with code %d, %s", code, received)
+	}
+	return "still running, " + received
 }
 
 func (s *session) see(text string) {

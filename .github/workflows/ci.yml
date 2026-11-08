@@ -65,6 +65,20 @@ jobs:
       - name: Unit tests
         run: go test ./...
 
+      # TEMPORARY: the PowerShell 5.1 scenarios time out on Arm with a blank
+      # screen. This shows whether Windows PowerShell starts at all outside
+      # ConPTY, and how long a cold and a warm start take.
+      - name: Check Windows PowerShell
+        if: matrix.arch == 'arm64'
+        run: |
+          for i in 1 2; do
+            start=$(date +%s)
+            timeout 120 powershell -NoProfile -Command '"PSVersion " + $PSVersionTable.PSVersion; "Arch " + $env:PROCESSOR_ARCHITECTURE; "64-bit " + [Environment]::Is64BitProcess' \
+              || echo "powershell failed or timed out: exit $?"
+            echo "run $i took $(( $(date +%s) - start ))s"
+          done
+          command -v powershell
+
       - name: E2E tests
         run: go test -tags e2e ./e2e -v
 
