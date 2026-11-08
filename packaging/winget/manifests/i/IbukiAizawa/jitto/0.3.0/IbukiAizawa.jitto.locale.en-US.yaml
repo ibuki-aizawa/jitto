@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.28.0.schema.json
+
+PackageIdentifier: IbukiAizawa.jitto
+PackageVersion: 0.3.0
+PackageLocale: en-US
+Publisher: Ibuki Aizawa
+PublisherUrl: https://github.com/ibuki-aizawa
+PublisherSupportUrl: https://github.com/ibuki-aizawa/jitto/issues
+Author: Ibuki Aizawa
+PackageName: jitto
+PackageUrl: https://github.com/ibuki-aizawa/jitto
+License: MIT
+LicenseUrl: https://github.com/ibuki-aizawa/jitto/blob/v0.3.0/LICENSE
+ShortDescription: Interactive jq with autocomplete from your actual data.
+Description: |-
+  jitto is an interactive jq for the console. It reads JSON from a file or standard input, shows the result of a jq expression while you type it, and suggests the keys that actually appear in your data at that point, even inside map() or .[] | .... The result is colored like jq, and -r (or Alt+R) writes strings without quotes.
+  Press Enter to print the result to stdout and the expression to stderr, so the result can be piped to the next command. jitto is a single binary and does not need jq installed.
+Moniker: jitto
+Tags:
+- cli
+- jq
+- json
+- terminal
+- tui
+ReleaseNotesUrl: https://github.com/ibuki-aizawa/jitto/releases/tag/v0.3.0
+ManifestType: defaultLocale
+ManifestVersion: 1.28.0
