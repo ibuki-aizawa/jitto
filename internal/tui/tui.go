@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -136,8 +137,8 @@ type Model struct {
 	// notice is about the input, such as invalid UTF-8. It takes the place of the
 	// help for the whole session.
 	notice string
-	// output is the last good result, the one on screen.
-	output string
+	// result is the last good result, the one on screen.
+	result eval.Result
 
 	// comp holds the latest candidates. They may be for an earlier text before the
 	// cursor; Narrow decides which of them still apply.
@@ -234,7 +235,7 @@ func (m *Model) Outcome() (output, expr string, ok bool) {
 	if strings.TrimSpace(expr) == "" {
 		expr = "."
 	}
-	return m.output, expr, true
+	return m.result.Output, expr, true
 }
 
 // Init evaluates the empty expression, so the input is shown right away.
@@ -574,11 +575,11 @@ func (m *Model) handleResult(msg resultMsg) tea.Cmd {
 
 	switch {
 	case msg.err == nil && finishing:
-		m.output = msg.res.Output
+		m.result = msg.res
 		m.confirmed = true
 		return m.quit()
 	case msg.err == nil:
-		m.showOutput(msg.res.Output)
+		m.showResult(msg.res)
 		m.errMsg = ""
 		m.state = stateDone
 		if msg.res.Truncated {
@@ -594,18 +595,77 @@ func (m *Model) handleResult(msg resultMsg) tea.Cmd {
 	return nil
 }
 
-func (m *Model) showOutput(output string) {
-	if output == m.output {
+func (m *Model) showResult(res eval.Result) {
+	if res.Output == m.result.Output && slices.Equal(res.Raw, m.result.Raw) {
 		return
 	}
-	m.output = output
-	content := strings.TrimRight(output, "\n")
-	if m.color {
-		content = highlight.Color(content)
-	}
-	m.pane.SetContent(content)
+	m.result = res
+	m.pane.SetContent(m.paneContent(res))
 	m.pane.GotoTop()
 	m.pane.SetXOffset(0)
+}
+
+// paneContent returns the text of the pane for res. JSON lines are colored, and
+// the lines of raw strings (jq -r) have their control characters made visible:
+// written to the terminal, they could break the screen or control the terminal.
+func (m *Model) paneContent(res eval.Result) string {
+	// Only the newline that ends the last result goes. A raw string can end in
+	// empty lines, which are part of the output.
+	lines := strings.Split(strings.TrimSuffix(res.Output, "\n"), "\n")
+	raw := res.Raw
+	for i, line := range lines {
+		for len(raw) > 0 && raw[0].To <= i {
+			raw = raw[1:]
+		}
+		switch {
+		case len(raw) > 0 && raw[0].From <= i:
+			lines[i] = visible(line, m.color)
+		case m.color:
+			lines[i] = highlight.ColorLine(line)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// tabWidth is the distance between tab stops in raw strings.
+const tabWidth = 8
+
+// visible returns line with its control characters replaced: a tab with spaces
+// up to the next tab stop, and others with a caret notation such as ^[ for ESC,
+// or \u0085 for the C1 controls. With color, the replacements are faint, to tell
+// them from the same text in the string.
+func visible(line string, color bool) string {
+	if !strings.ContainsFunc(line, unicode.IsControl) {
+		return line
+	}
+	var b strings.Builder
+	col := 0
+	for _, r := range line {
+		var mark string
+		switch {
+		case r == '\t':
+			b.WriteString(strings.Repeat(" ", tabWidth-col%tabWidth))
+			col += tabWidth - col%tabWidth
+			continue
+		case r < 0x20:
+			mark = "^" + string(r+'@')
+		case r == 0x7f:
+			mark = "^?"
+		case unicode.IsControl(r):
+			mark = fmt.Sprintf(`\u%04x`, r)
+		default:
+			b.WriteRune(r)
+			col += lipgloss.Width(string(r))
+			continue
+		}
+		if color {
+			b.WriteString("\x1b[2m" + mark + "\x1b[0m")
+		} else {
+			b.WriteString(mark)
+		}
+		col += len(mark)
+	}
+	return b.String()
 }
 
 func (m *Model) resize(width, height int) {

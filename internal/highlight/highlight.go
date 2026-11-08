@@ -114,17 +114,29 @@ func Color(text string) string {
 		if i > 0 {
 			b.WriteByte('\n')
 		}
-		for _, s := range Line(line) {
-			if c, ok := colors[s.Kind]; ok {
-				b.WriteString(c)
-				b.WriteString(s.Text)
-				b.WriteString(reset)
-			} else {
-				b.WriteString(s.Text)
-			}
-		}
+		writeLine(&b, line)
 	}
 	return b.String()
+}
+
+// ColorLine adds colors to one line of JSON, as Color does.
+func ColorLine(line string) string {
+	var b strings.Builder
+	b.Grow(len(line) + len(line)/2)
+	writeLine(&b, line)
+	return b.String()
+}
+
+func writeLine(b *strings.Builder, line string) {
+	for _, s := range Line(line) {
+		if c, ok := colors[s.Kind]; ok {
+			b.WriteString(c)
+			b.WriteString(s.Text)
+			b.WriteString(reset)
+		} else {
+			b.WriteString(s.Text)
+		}
+	}
 }
 
 // stringEnd returns the index just past the string that starts with the quote at

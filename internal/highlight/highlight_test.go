@@ -67,6 +67,9 @@ func TestColor(t *testing.T) {
 	if got := Color(""); got != "" {
 		t.Errorf("Color(\"\") = %q", got)
 	}
+	if got, want := ColorLine(`  "a": null`), "  \x1b[34;1m\"a\"\x1b[0m: \x1b[90mnull\x1b[0m"; got != want {
+		t.Errorf("ColorLine = %q, want %q", got, want)
+	}
 }
 
 func TestLineKeepsText(t *testing.T) {

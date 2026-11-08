@@ -312,8 +312,8 @@ func TestEnterOnTruncatedPreviewOutputsEverything(t *testing.T) {
 	// More than previewMaxBytes of output.
 	h.typeText("range(400000)")
 	h.wantPane(truncatedText)
-	if len(h.m.output) > previewMaxBytes {
-		t.Errorf("preview is %d bytes, over the limit", len(h.m.output))
+	if len(h.m.result.Output) > previewMaxBytes {
+		t.Errorf("preview is %d bytes, over the limit", len(h.m.result.Output))
 	}
 
 	h.press(tea.KeyEnter)
@@ -834,7 +834,7 @@ func TestCyclingPreviewsTheCandidate(t *testing.T) {
 	h.typeText(".")
 	h.press(tea.KeyCtrlN)
 	h.press(tea.KeyCtrlN)
-	if got := h.m.output; got != "2\n" {
+	if got := h.m.result.Output; got != "2\n" {
 		t.Errorf("preview is %q, want the result of .beta", got)
 	}
 }
@@ -894,13 +894,13 @@ func TestEscWhileCyclingPutsBackTheTypedText(t *testing.T) {
 	}
 	h.press(tea.KeyCtrlN)
 	h.wantInput(".beta + 1", 5)
-	if got := h.m.output; got != "3\n" {
+	if got := h.m.result.Output; got != "3\n" {
 		t.Errorf("preview is %q, want the result of .beta + 1", got)
 	}
 	h.press(tea.KeyEsc)
 	h.wantInput(".b + 1", 2)
 	h.wantCandidates()
-	if got := h.m.output; got != "1\n" {
+	if got := h.m.result.Output; got != "1\n" {
 		t.Errorf("preview is %q, want the result of .b + 1", got)
 	}
 }
@@ -1108,6 +1108,74 @@ func TestResultColorsUnderCandidates(t *testing.T) {
 	for _, line := range lines {
 		if got := lipgloss.Width(line); got > 80 {
 			t.Errorf("row is %d columns: %q", got, line)
+		}
+	}
+}
+
+// useRaw makes the evaluator write strings as they are, like jq -r.
+func (h *harness) useRaw() {
+	h.useEvaluator(func(ctx context.Context, expr string, docs []any, opts eval.Options) (eval.Result, error) {
+		opts.Raw = true
+		return eval.Eval(ctx, expr, docs, opts)
+	})
+}
+
+func TestRawStringsInPane(t *testing.T) {
+	h := newHarness(t, map[string]any{
+		"tab":   "x\ty",
+		"lines": "one\ntwo\n\n",
+		"json":  `"k": null`,
+	})
+	h.m.color = true
+	h.useRaw()
+	h.start()
+	h.typeText(`.tab, .lines, .json, {k: 1}`)
+	lines := h.paneLines()
+	want := []string{"x       y", "one", "two", "", "", `"k": null`, "{", `  "k": 1`, "}"}
+	for i, w := range want {
+		if got := stripANSI(lines[i]); strings.TrimRight(got, " ") != w {
+			t.Errorf("row %d is %q, want %q", i, got, w)
+		}
+	}
+	// Raw strings have no colors, even when they look like JSON.
+	for i := range 6 {
+		if strings.Contains(lines[i], "\x1b[") {
+			t.Errorf("raw row %d has colors: %q", i, lines[i])
+		}
+	}
+	if !strings.Contains(lines[7], "\x1b[34;1m\"k\"") {
+		t.Errorf("JSON row has no colors: %q", lines[7])
+	}
+}
+
+func TestRawControlCharactersAreVisible(t *testing.T) {
+	h := newHarness(t, "\x1b[31mred\x07\x7f\u0085\r")
+	h.useRaw()
+	h.start()
+	if got, want := strings.TrimRight(h.paneLines()[0], " "), `^[[31mred^G^?\u0085^M`; got != want {
+		t.Errorf("row is %q, want %q", got, want)
+	}
+}
+
+func TestVisible(t *testing.T) {
+	tests := []struct {
+		line  string
+		color bool
+		want  string
+	}{
+		{"plain", false, "plain"},
+		{"\tx", false, "        x"},
+		{"ab\tx", false, "ab      x"},
+		{"あ\tx", false, "あ      x"},
+		{"12345678\tx", false, "12345678        x"},
+		{"^[\x1b", false, "^[^["},
+		{"a\x00", false, "a^@"},
+		{"\x1b", true, "\x1b[2m^[\x1b[0m"},
+		{"\x1bx\tx", false, "^[x     x"},
+	}
+	for _, tt := range tests {
+		if got := visible(tt.line, tt.color); got != tt.want {
+			t.Errorf("visible(%q, %v) = %q, want %q", tt.line, tt.color, got, tt.want)
 		}
 	}
 }
