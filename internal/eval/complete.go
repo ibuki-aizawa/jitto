@@ -325,11 +325,16 @@ func keyText(k string) string {
 	if isIdent(k) {
 		return k
 	}
+	return jsonString(k)
+}
+
+// jsonString returns s as a JSON string, which is also a jq string literal.
+func jsonString(s string) string {
 	var b bytes.Buffer
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
 	// Encoding a string cannot fail.
-	_ = enc.Encode(k)
+	_ = enc.Encode(s)
 	return strings.TrimSuffix(b.String(), "\n")
 }
 
