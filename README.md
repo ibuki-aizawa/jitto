@@ -21,6 +21,7 @@ The name comes from the Japanese word *jitto* (じっと), "to stare intently" �
 
 - **Live results**: The result pane updates on every keystroke, colored like jq.
 - **Key completion from your data**: jitto runs the expression on your JSON and suggests the keys that actually appear there, even inside `.[] | ...` or `map(...)`. Ctrl+N / Ctrl+P write each candidate into the input and preview its result.
+- **Example filters from your data**: Press Ctrl+T for filters that fit the result, such as `map(.name)`, `map(select(.status == "shipped"))` or `group_by(.status)`, written with the keys and values in your JSON. Try each one with Ctrl+N / Ctrl+P. No AI and no network: jitto works them out from the data on your machine.
 - **Keeps the last good result**: While the expression is incomplete or has an error, the previous result stays on screen with the error message.
 - **Fits into scripts**: Enter prints the result to stdout and the expression to stderr. Pipe the result to the next command, and copy the expression into your script.
 - **Raw strings, like jq -r**: Start with `-r`, or press Alt+R at any time to switch, and see the result change at once.
@@ -122,19 +123,41 @@ When you start a key, as in `.` or `.items[0].na`, jitto lists the keys availabl
 - Esc restores what you typed and closes the list.
 - Keys that need quotes, such as `a-b`, are inserted as `."a-b"`.
 
+### Example filters (Ctrl+T)
+
+Press Ctrl+T to list filters that can follow the expression, each with what it gives. jitto makes them from the result: its types, keys and values. For `.orders` in the [demo data](demo/demo.json), the list starts like this:
+
+| Example | Description |
+|---|---|
+| `map(.id)` | the id of each item |
+| `map(select(.status == "shipped"))` | the items whose status is "shipped" |
+| `map(select(.total > 25))` | the items whose total is over 25 |
+| `sort_by(.total)` | the items in order of total |
+| `group_by(.status) \| map({status: .[0].status, count: length})` | the number of items for each status |
+
+- For an array of objects, the examples pick out a key (`map(.name)`), filter (`select`), sort (`sort_by`), count by a key (`group_by`), or keep a few keys (`map({id, name})`). `select` and `group_by` use a key with a few distinct strings and its most common value, or a number key and its median.
+- For an array of numbers or strings, they add up, average, sort or count the values (`add`, `add / length`, `unique`, `join(", ")` and so on). For an object, they go into its keys (`.orders`, `keys`, `to_entries`).
+- When the expression yields several values, as `.[] | .name` does, some examples collect them first: `[.[] | .name] | unique`.
+- Each example is run on your data first. One that fails, gives nothing, or changes nothing is left out.
+
+Ctrl+N / Ctrl+P write the examples into the input, after ` | `, and the result pane previews each one, as with key completion. After the last one, you are back to what you typed. Tab / Ctrl+Y keeps the example (or inserts the first one), and Esc, or Ctrl+T again, restores what you typed. Editing keeps the example and closes the list.
+
+An expression that ends with a pipe, such as `.orders |`, gets the examples after its pipe.
+
 ### Keys
 
 | Key | Action |
 |---|---|
 | Enter | Print the result and exit |
 | Ctrl+C | Exit without output |
+| Ctrl+T | List example filters for the result (again to close) |
 | Alt+R | Switch `-r` (raw strings) on or off |
 | ↑ ↓ | Scroll the result by one line |
 | PgUp PgDn | Scroll the result by one page |
 | Shift+← Shift+→ | Scroll the result sideways |
-| Ctrl+N Ctrl+P | Write the next / previous candidate into the input and preview it |
-| Tab Ctrl+Y | Accept the candidate (or insert the first one) |
-| Esc | Close the candidates (restoring what you typed; they stay closed until you edit) |
+| Ctrl+N Ctrl+P | Write the next / previous candidate or example into the input and preview it |
+| Tab Ctrl+Y | Accept the candidate or example (or insert the first one) |
+| Esc | Close the candidates or examples (restoring what you typed; candidates stay closed until you edit) |
 | Ctrl+W (Alt+Backspace) | Delete the word before the cursor |
 | Alt+D (Alt+Delete) | Delete the word after the cursor |
 | Ctrl+← Ctrl+→ (Alt+B Alt+F) | Move by word |
@@ -156,6 +179,7 @@ Piping non-ASCII text in PowerShell needs some settings, and so does piping the 
 
 - With multiple JSON documents (such as NDJSON), the expression applies to each document, as in jq.
 - Key completion examines up to 10,000 values, lists up to 1,000 keys, and stops after 1 second.
+- Example filters examine up to 10,000 values, list up to 10 examples, and stop after 1 second.
 - The preview shows up to 1 MiB, and evaluation stops after 5 seconds. Enter evaluates without these limits and prints the whole result. If it takes long, edit the expression to cancel, or press Ctrl+C to quit.
 - jitto draws the screen on stderr, so stderr cannot be redirected.
 

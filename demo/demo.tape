@@ -64,6 +64,18 @@ Sleep 600ms
 Tab
 Sleep 2s
 
+# Examples made from the result. Ctrl+N tries each one, Tab keeps it.
+Ctrl+T
+Sleep 2s
+Ctrl+N
+Sleep 1.5s
+Ctrl+N
+Sleep 1.5s
+Ctrl+P
+Sleep 1s
+Tab
+Sleep 1.5s
+
 # The result goes to stdout and the expression to stderr.
 Enter
 Sleep 3s
