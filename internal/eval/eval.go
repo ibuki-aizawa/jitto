@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iter"
 	"os"
 	"strings"
 	"unicode"
@@ -52,17 +53,24 @@ type Lines struct {
 	From, To int
 }
 
-// IsRaw reports whether line i of Output holds the text of a string.
-func (r Result) IsRaw(i int) bool {
-	for _, l := range r.Raw {
-		if i < l.From {
-			return false
-		}
-		if i < l.To {
-			return true
+// Lines yields each line of Output without its newline, and whether it holds the
+// text of a string rather than JSON. A last line cut by MaxBytes is yielded as
+// well, and an empty Output has no lines.
+func (r Result) Lines() iter.Seq2[string, bool] {
+	return func(yield func(string, bool) bool) {
+		raw := r.Raw
+		rest := r.Output
+		for i := 0; rest != ""; i++ {
+			line, after, _ := strings.Cut(rest, "\n")
+			rest = after
+			for len(raw) > 0 && raw[0].To <= i {
+				raw = raw[1:]
+			}
+			if !yield(line, len(raw) > 0 && raw[0].From <= i) {
+				return
+			}
 		}
 	}
-	return false
 }
 
 // Eval runs expr against each document in docs, in order. An empty expression

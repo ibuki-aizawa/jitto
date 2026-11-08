@@ -119,8 +119,8 @@ func (h *harness) wantNoOutcome() {
 	if h.quit {
 		h.t.Error("program quit unexpectedly")
 	}
-	if out, expr, ok := h.m.Outcome(); ok {
-		h.t.Errorf("unexpected outcome: output %q, expr %q", out, expr)
+	if res, expr, ok := h.m.Outcome(); ok {
+		h.t.Errorf("unexpected outcome: output %q, expr %q", res.Output, expr)
 	}
 }
 
@@ -129,7 +129,8 @@ func (h *harness) wantOutcome(output, expr string) {
 	if !h.quit {
 		h.t.Error("program did not quit")
 	}
-	gotOut, gotExpr, ok := h.m.Outcome()
+	gotRes, gotExpr, ok := h.m.Outcome()
+	gotOut := gotRes.Output
 	if !ok {
 		h.t.Fatal("no outcome")
 	}
@@ -321,7 +322,8 @@ func TestEnterOnTruncatedPreviewOutputsEverything(t *testing.T) {
 	if !h.quit {
 		t.Fatal("program did not quit")
 	}
-	out, _, ok := h.m.Outcome()
+	res, _, ok := h.m.Outcome()
+	out := res.Output
 	if !ok {
 		t.Fatal("no outcome")
 	}
@@ -1158,7 +1160,8 @@ func TestEnterAfterAltROutputsRawStrings(t *testing.T) {
 	h.typeText(".a")
 	h.settle(h.send(altR()))
 	h.press(tea.KeyEnter)
-	output, expr, ok := h.m.Outcome()
+	res, expr, ok := h.m.Outcome()
+	output := res.Output
 	if !ok || output != "x\n" || expr != ".a" {
 		t.Errorf("outcome is %q, %q, %v", output, expr, ok)
 	}

@@ -52,6 +52,7 @@ const (
 	keyCtrlY      = "\x19"
 	keyCtrlW      = "\x17"
 	keyCtrlLeft   = "\x1b[1;5D"
+	keyAltR       = "\x1br"
 
 	helpShown = "Enter: confirm"
 )
@@ -359,6 +360,71 @@ func TestCmdPipeWithStdoutOnConsole(t *testing.T) {
 	s.wantConsoleContains(`"one"`)
 	s.wantConsoleContains(".a")
 	s.wantConsoleLacks(helpShown)
+}
+
+func TestRawOutputOption(t *testing.T) {
+	for _, opt := range []string{"-r", "--raw-output"} {
+		t.Run(opt, func(t *testing.T) {
+			f := newFixture(t)
+			s := f.start(`cmd /c ""{jitto}" ` + opt + ` data.json > out.txt"`)
+			s.showingDoc()
+			s.see("-r> ")
+			s.typeKeys(".a")
+			s.gone(`"a": "one"`)
+			if !slices.Contains(s.scr.rows(), "one") {
+				t.Fatalf("no row shows the raw string:\n%s", s.scr.dump())
+			}
+			s.send(keyEnter)
+			s.wantExit(0)
+			if got := f.read("out.txt"); got != "one\n" {
+				t.Errorf("stdout is %q", got)
+			}
+		})
+	}
+}
+
+func TestAltRSwitchesRawOutput(t *testing.T) {
+	f := newFixture(t)
+	s := f.start(`cmd /c ""{jitto}" data.json > out.txt"`)
+	s.selectA()
+	s.send(keyAltR)
+	s.see("-r> .a")
+	s.gone(`"one"`)
+	s.send(keyAltR)
+	s.gone("-r> ")
+	s.see(`"one"`)
+	s.send(keyAltR)
+	s.see("-r> .a")
+	s.gone(`"one"`)
+	s.send(keyEnter)
+	s.wantExit(0)
+	if got := f.read("out.txt"); got != "one\n" {
+		t.Errorf("stdout is %q", got)
+	}
+}
+
+// With -r, the raw strings of the confirmed result have no colors, while the JSON
+// around them still does.
+func TestRawOutputOnConsole(t *testing.T) {
+	f := newFixture(t)
+	s := f.start(`cmd /c ""{jitto}" -r data.json"`)
+	s.showingDoc()
+	s.typeKeys(".a, {b: 1}")
+	s.see(`"b": 1`)
+	s.send(keyEnter)
+	s.wantExit(0)
+	s.wantConsoleContains(".a, {b: 1}")
+	rows := s.scr.rows()
+	raw, key := slices.Index(rows, "one"), slices.Index(rows, `  "b": 1`)
+	if raw < 0 || key < 0 {
+		t.Fatalf("result is not on the console:\n%s", s.scr.dump())
+	}
+	if _, color := s.scr.styled(raw); color {
+		t.Error("raw string has color")
+	}
+	if _, color := s.scr.styled(key); !color {
+		t.Error("JSON has no color")
+	}
 }
 
 // On the console, the confirmed result has colors like jq. Files get plain JSON,
@@ -765,7 +831,7 @@ func TestCommandLine(t *testing.T) {
 		{"help", `"{jitto}" --help`, 0, "Usage:"},
 		{"version", `"{jitto}" --version`, 0, "jitto " + testVersion},
 		{"short version", `"{jitto}" -V`, 0, "jitto " + testVersion},
-		{"unknown option", `"{jitto}" -r data.json`, 2, "unknown option -r"},
+		{"unknown option", `"{jitto}" -c data.json`, 2, "unknown option -c"},
 		{"too many arguments", `"{jitto}" a b`, 2, "too many arguments"},
 		{"missing file", `"{jitto}" missing.json`, 1, "missing.json"},
 		{"invalid JSON in a file", `"{jitto}" bad.json`, 1, "invalid JSON"},

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ibuki-aizawa/jitto/internal/eval"
 	"github.com/ibuki-aizawa/jitto/internal/input"
 )
 
@@ -23,9 +24,13 @@ func TestParseArgs(t *testing.T) {
 		{name: "short version", args: []string{"-V"}, want: options{version: true}},
 		{name: "long version", args: []string{"--version"}, want: options{version: true}},
 		{name: "version wins over a file", args: []string{"data.json", "--version"}, want: options{version: true}},
-		{name: "unknown option", args: []string{"-r"}, wantErr: "unknown option -r"},
+		{name: "unknown option", args: []string{"-c"}, wantErr: "unknown option -c"},
 		{name: "lowercase v is not version", args: []string{"-v"}, wantErr: "unknown option -v"},
-		{name: "unknown option after a file", args: []string{"data.json", "-r"}, wantErr: "unknown option -r"},
+		{name: "unknown option after a file", args: []string{"data.json", "-c"}, wantErr: "unknown option -c"},
+		{name: "short raw output", args: []string{"-r", "data.json"}, want: options{path: "data.json", raw: true}},
+		{name: "long raw output", args: []string{"--raw-output"}, want: options{raw: true}},
+		{name: "raw output after the file", args: []string{"data.json", "-r"}, want: options{path: "data.json", raw: true}},
+		{name: "combined short options are not supported", args: []string{"-rV"}, wantErr: "unknown option -rV"},
 		{name: "too many arguments", args: []string{"a.json", "b.json"}, wantErr: "too many arguments"},
 		{name: "encoding", args: []string{"--encoding", "sjis", "data.json"}, want: options{path: "data.json", encoding: input.ShiftJIS}},
 		{name: "encoding after the file", args: []string{"data.json", "--encoding", "cp932"}, want: options{path: "data.json", encoding: input.ShiftJIS}},
@@ -78,5 +83,22 @@ func TestResolveVersion(t *testing.T) {
 				t.Errorf("got %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestColorResult(t *testing.T) {
+	res := eval.Result{
+		Output: "{\n  \"a\": 1\n}\n\"k\": null\n\x1b[31m\n",
+		Raw:    []eval.Lines{{From: 3, To: 5}},
+	}
+	want := "\x1b[1m{\x1b[0m\n" +
+		"  \x1b[34;1m\"a\"\x1b[0m: 1\n" +
+		"\x1b[1m}\x1b[0m\n" +
+		// Raw strings are written as they are, even when they look like JSON or
+		// hold escape sequences, as jq -r does.
+		"\"k\": null\n" +
+		"\x1b[31m\n"
+	if got := colorResult(res); got != want {
+		t.Errorf("colorResult =\n  %q\nwant\n  %q", got, want)
 	}
 }

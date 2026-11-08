@@ -104,30 +104,12 @@ var colors = map[Kind]string{
 
 const reset = "\x1b[0m"
 
-// Color adds ANSI colors to text, indented JSON of one or more lines, like jq
-// does. Each colored span ends with a reset, so a line can be cut anywhere
-// between spans without leaking its color.
-func Color(text string) string {
-	var b strings.Builder
-	b.Grow(len(text) + len(text)/2)
-	for i, line := range strings.Split(text, "\n") {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		writeLine(&b, line)
-	}
-	return b.String()
-}
-
-// ColorLine adds colors to one line of JSON, as Color does.
+// ColorLine adds ANSI colors to one line of indented JSON, like jq does. Each
+// colored span ends with a reset, so the line can be cut anywhere between spans
+// without leaking its color.
 func ColorLine(line string) string {
 	var b strings.Builder
 	b.Grow(len(line) + len(line)/2)
-	writeLine(&b, line)
-	return b.String()
-}
-
-func writeLine(b *strings.Builder, line string) {
 	for _, s := range Line(line) {
 		if c, ok := colors[s.Kind]; ok {
 			b.WriteString(c)
@@ -137,6 +119,7 @@ func writeLine(b *strings.Builder, line string) {
 			b.WriteString(s.Text)
 		}
 	}
+	return b.String()
 }
 
 // stringEnd returns the index just past the string that starts with the quote at

@@ -139,12 +139,34 @@ func TestEvalRawTruncated(t *testing.T) {
 	}
 }
 
-func TestIsRaw(t *testing.T) {
-	r := Result{Raw: []Lines{{1, 3}, {5, 6}}}
-	for i, want := range []bool{false, true, true, false, false, true, false} {
-		if got := r.IsRaw(i); got != want {
-			t.Errorf("IsRaw(%d) = %v, want %v", i, got, want)
-		}
+func TestResultLines(t *testing.T) {
+	type line struct {
+		text string
+		raw  bool
+	}
+	tests := []struct {
+		name string
+		res  Result
+		want []line
+	}{
+		{"empty", Result{}, nil},
+		{"one empty line", Result{Output: "\n", Raw: []Lines{{0, 1}}}, []line{{"", true}}},
+		{"ranges", Result{Output: "0\n1\n2\n3\n4\n5\n6\n", Raw: []Lines{{1, 3}, {5, 6}}}, []line{
+			{"0", false}, {"1", true}, {"2", true}, {"3", false}, {"4", false}, {"5", true}, {"6", false},
+		}},
+		{"cut last line", Result{Output: "a\nb", Raw: []Lines{{1, 2}}}, []line{{"a", false}, {"b", true}}},
+		{"empty lines", Result{Output: "a\n\n\n", Raw: []Lines{{0, 3}}}, []line{{"a", true}, {"", true}, {"", true}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []line
+			for text, raw := range tt.res.Lines() {
+				got = append(got, line{text, raw})
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %v, want %v", got, tt.want)
+			}
+		})
 	}
 }
 

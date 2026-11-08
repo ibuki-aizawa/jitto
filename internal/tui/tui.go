@@ -230,17 +230,23 @@ func (m *Model) SetNotice(text string) {
 	m.notice = text
 }
 
-// Outcome returns the complete output and the expression if the user confirmed
+// SetRaw starts with jq -r on: strings are written as they are, without quotes.
+// Alt+R switches it.
+func (m *Model) SetRaw(raw bool) {
+	m.setRaw(raw)
+}
+
+// Outcome returns the complete result and the expression if the user confirmed
 // a result. ok is false if the user canceled.
-func (m *Model) Outcome() (output, expr string, ok bool) {
+func (m *Model) Outcome() (res eval.Result, expr string, ok bool) {
 	if !m.confirmed {
-		return "", "", false
+		return eval.Result{}, "", false
 	}
 	expr = m.input.Value()
 	if strings.TrimSpace(expr) == "" {
 		expr = "."
 	}
-	return m.result.Output, expr, true
+	return m.result, expr, true
 }
 
 // Init evaluates the empty expression, so the input is shown right away.
@@ -616,20 +622,15 @@ func (m *Model) showResult(res eval.Result) {
 // the lines of raw strings (jq -r) have their control characters made visible:
 // written to the terminal, they could break the screen or control the terminal.
 func (m *Model) paneContent(res eval.Result) string {
-	// Only the newline that ends the last result goes. A raw string can end in
-	// empty lines, which are part of the output.
-	lines := strings.Split(strings.TrimSuffix(res.Output, "\n"), "\n")
-	raw := res.Raw
-	for i, line := range lines {
-		for len(raw) > 0 && raw[0].To <= i {
-			raw = raw[1:]
-		}
+	var lines []string
+	for line, raw := range res.Lines() {
 		switch {
-		case len(raw) > 0 && raw[0].From <= i:
-			lines[i] = visible(line, m.color)
+		case raw:
+			line = visible(line, m.color)
 		case m.color:
-			lines[i] = highlight.ColorLine(line)
+			line = highlight.ColorLine(line)
 		}
+		lines = append(lines, line)
 	}
 	return strings.Join(lines, "\n")
 }
