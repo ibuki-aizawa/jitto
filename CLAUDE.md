@@ -54,7 +54,8 @@ Windows 向けのインタラクティブ jq ツール。jq 式を入力する�
 ## ドキュメント
 
 - README.md は英語で、日本語版は README.ja.md に置く。どちらも同じ構成に保つ。
-- 動作やキー操作を変えたら、README.md と README.ja.md の両方を更新する。
+- README に収まらない詳細は docs/ に置き、README からリンクする。英語版（`docs/NAME.md`）と日本語版（`docs/NAME.ja.md`）を同じ構成に保つ。今は文字コードと PowerShell の説明（docs/encoding.md）がある。
+- 動作やキー操作を変えたら、README と docs/ の英語版と日本語版を両方更新する。
 - 画面の見た目や補完の操作が変わったら、デモの GIF（demo/demo.gif）も作り直す。デモのデータ（demo/demo.json）は英語だけで書く。
 
 ## 進め方

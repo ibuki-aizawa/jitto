@@ -529,8 +529,8 @@ func TestPowerShell51(t *testing.T) {
 		s.wantExit(0)
 	})
 
-	// The workaround the README gives for Japanese text.
-	t.Run("README workaround keeps Japanese", func(t *testing.T) {
+	// The workaround docs/encoding.md gives for Japanese text.
+	t.Run("documented workaround keeps Japanese", func(t *testing.T) {
 		f := newFixture(t)
 		s := f.start(`powershell -NoProfile -Command "$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8; Get-Content -Encoding UTF8 data.json | & '{jitto}' | Set-Content -Encoding UTF8 out.txt; exit $LASTEXITCODE"`)
 		s.showingDoc()

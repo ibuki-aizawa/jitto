@@ -13,7 +13,7 @@ The name comes from the Japanese word *jitto* (じっと), "to stare intently" �
 
 ![jitto demo](demo/demo.gif)
 
-> 日本語の説明は [README.ja.md](README.ja.md) にあります。Shift_JIS の入力や PowerShell での使い方も、日本語で詳しく説明しています。
+> 日本語の説明は [README.ja.md](README.ja.md) にあります。Shift_JIS の入力や、PowerShell で日本語を含む JSON を渡す方法は [docs/encoding.ja.md](docs/encoding.ja.md) で説明しています。
 
 ## Features
 
@@ -137,31 +137,9 @@ A word is a run of key characters (letters, digits, `_`) or a run of symbols. In
 
 ## Encodings
 
-jitto reads UTF-8 by default. With a BOM at the start, it reads UTF-8 or UTF-16 as the BOM says.
+jitto reads UTF-8, and UTF-16 with a BOM. For Shift_JIS, add `--encoding sjis`. The output is always UTF-8.
 
-For Shift_JIS, add `--encoding sjis` (or `--encoding=sjis`). The names `shift_jis`, `sjis`, `cp932` and `windows-31j` all work, in any case. jitto reads it as the Windows code page 932. A UTF-16 BOM wins over `--encoding`; a UTF-8 BOM is skipped, because PowerShell 5.1 can add one even to Shift_JIS.
-
-The output is always UTF-8.
-
-### PowerShell
-
-PowerShell converts text twice in a pipe: when `Get-Content` reads the file (as `-Encoding`), and when it passes the text to an external command (as `$OutputEncoding`). If either is wrong, non-ASCII characters are replaced with `?` before they reach jitto, and jitto cannot detect it.
-
-Passing the file as an argument avoids both conversions. To use a pipe:
-
-| Shell | UTF-8 file | Shift_JIS file |
-|---|---|---|
-| PowerShell 7 | `Get-Content data.json \| jitto` | `Get-Content -Encoding 932 data.json \| jitto` |
-| PowerShell 5.1 | `$OutputEncoding = [Text.Encoding]::UTF8`, then `Get-Content -Encoding UTF8 data.json \| jitto` | `$OutputEncoding = [Text.Encoding]::GetEncoding(932)`, then `Get-Content data.json \| jitto --encoding sjis` |
-
-In cmd, `type data.json | jitto` passes the bytes unchanged. Files saved with `>` in PowerShell 5.1 are UTF-16 with a BOM, which jitto reads as a file argument.
-
-To receive the UTF-8 output in PowerShell 5.1 with `>` or a pipe, set the console encoding first:
-
-```powershell
-$OutputEncoding = [Console]::OutputEncoding = [Text.Encoding]::UTF8
-Get-Content -Encoding UTF8 data.json | jitto | Set-Content -Encoding UTF8 result.json
-```
+Piping non-ASCII text in PowerShell needs some settings. See [docs/encoding.md](docs/encoding.md) for those and the details of each encoding.
 
 ## Details
 
@@ -186,8 +164,7 @@ Most differences from jq come from gojq.
 - Object keys are printed in sorted order; the input order is not kept.
 - These are not available: `keys_unsorted`, `$__loc__`, `debug`, `stderr`, `input_filename`, `input`, `inputs`.
 - Of the jq command-line options, only `-r` is available. Others, such as `-c` and `-j`, are not.
-- Input must be UTF-8, UTF-16 with a BOM, or Shift_JIS (`--encoding sjis`). Convert other encodings, such as UTF-16 without a BOM, to UTF-8 first.
-- Reading Shift_JIS without `--encoding` turns non-ASCII text into `�`. jitto then shows a notice suggesting `--encoding sjis`. Some characters can also make the JSON invalid; the error message includes the same hint.
+- Input must be UTF-8, UTF-16 with a BOM, or Shift_JIS (`--encoding sjis`). See [docs/encoding.md](docs/encoding.md).
 - Results nested deeper than 10,000 levels cannot be shown.
 - Non-identifier keys need quotes, as in jq: `."名前"`. Typing `.名前` shows the correct form with the error.
 
