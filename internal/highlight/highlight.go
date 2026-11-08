@@ -2,6 +2,8 @@
 // value they hold, so that they can be colored like jq does.
 package highlight
 
+import "strings"
+
 // Kind is the kind of text in a span.
 type Kind int
 
@@ -88,6 +90,41 @@ func Line(line string) []Span {
 		}
 	}
 	return spans
+}
+
+// The colors of jq 1.7, except null, which uses bright black ("90") as jq 1.8
+// does: the "1;30" of jq 1.7 is hard to read on a dark background. Numbers and
+// booleans keep the default color.
+var colors = map[Kind]string{
+	Key:     "\x1b[34;1m",
+	String:  "\x1b[32m",
+	Null:    "\x1b[90m",
+	Bracket: "\x1b[1m",
+}
+
+const reset = "\x1b[0m"
+
+// Color adds ANSI colors to text, indented JSON of one or more lines, like jq
+// does. Each colored span ends with a reset, so a line can be cut anywhere
+// between spans without leaking its color.
+func Color(text string) string {
+	var b strings.Builder
+	b.Grow(len(text) + len(text)/2)
+	for i, line := range strings.Split(text, "\n") {
+		if i > 0 {
+			b.WriteByte('\n')
+		}
+		for _, s := range Line(line) {
+			if c, ok := colors[s.Kind]; ok {
+				b.WriteString(c)
+				b.WriteString(s.Text)
+				b.WriteString(reset)
+			} else {
+				b.WriteString(s.Text)
+			}
+		}
+	}
+	return b.String()
 }
 
 // stringEnd returns the index just past the string that starts with the quote at

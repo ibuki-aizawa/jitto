@@ -53,6 +53,22 @@ func TestLine(t *testing.T) {
 	}
 }
 
+func TestColor(t *testing.T) {
+	in := "{\n  \"a\": \"x\",\n  \"n\": 1,\n  \"b\": true,\n  \"z\": null\n}\n"
+	want := "\x1b[1m{\x1b[0m\n" +
+		"  \x1b[34;1m\"a\"\x1b[0m: \x1b[32m\"x\"\x1b[0m,\n" +
+		"  \x1b[34;1m\"n\"\x1b[0m: 1,\n" +
+		"  \x1b[34;1m\"b\"\x1b[0m: true,\n" +
+		"  \x1b[34;1m\"z\"\x1b[0m: \x1b[90mnull\x1b[0m\n" +
+		"\x1b[1m}\x1b[0m\n"
+	if got := Color(in); got != want {
+		t.Errorf("Color(%q) =\n  %q\nwant\n  %q", in, got, want)
+	}
+	if got := Color(""); got != "" {
+		t.Errorf("Color(\"\") = %q", got)
+	}
+}
+
 func TestLineKeepsText(t *testing.T) {
 	for _, line := range []string{
 		`  "a": [1, "two", null, {"b": false}],`,

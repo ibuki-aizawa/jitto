@@ -27,6 +27,7 @@ import (
 	"github.com/muesli/termenv"
 
 	"github.com/ibuki-aizawa/jitto/internal/eval"
+	"github.com/ibuki-aizawa/jitto/internal/highlight"
 )
 
 const (
@@ -117,6 +118,9 @@ type Model struct {
 	helpStyle     lipgloss.Style
 	menuStyle     lipgloss.Style
 	selectedStyle lipgloss.Style
+	// color reports whether the result is colored like jq. It is off when the
+	// default renderer has no colors, as with NO_COLOR set.
+	color bool
 
 	width int
 
@@ -200,6 +204,7 @@ func New(docs []any) *Model {
 		helpStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("241")),
 		menuStyle:     lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(lipgloss.Color("238")),
 		selectedStyle: cursorStyle().Reverse(true),
+		color:         lipgloss.ColorProfile() != termenv.Ascii,
 	}
 }
 
@@ -594,7 +599,11 @@ func (m *Model) showOutput(output string) {
 		return
 	}
 	m.output = output
-	m.pane.SetContent(strings.TrimRight(output, "\n"))
+	content := strings.TrimRight(output, "\n")
+	if m.color {
+		content = highlight.Color(content)
+	}
+	m.pane.SetContent(content)
 	m.pane.GotoTop()
 	m.pane.SetXOffset(0)
 }
@@ -703,15 +712,33 @@ func fit(s string, width int) string {
 
 // columns returns the part of s between the columns from and to. A wide character
 // cut by either edge becomes spaces, so the result is to-from columns wide unless
-// s ends first. s must not contain escape sequences, which holds for the pane: it
-// shows formatted JSON, in which control characters are escaped.
+// s ends first.
+//
+// s may contain SGR sequences (ESC [ ... m), such as the colors of the pane. They
+// take no columns. Those before the cut are kept, so a part that starts inside a
+// colored span keeps its color, and the result ends with a reset if it has any.
+// Other control characters cannot appear: the pane shows formatted JSON, in which
+// they are escaped.
 func columns(s string, from, to int) string {
 	var b strings.Builder
 	col := 0
-	for _, r := range s {
+	styled := false
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			end := strings.IndexByte(s[i:], 'm')
+			if end < 0 {
+				break
+			}
+			b.WriteString(s[i : i+end+1])
+			styled = true
+			i += end + 1
+			continue
+		}
 		if col >= to {
 			break
 		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		i += size
 		w := lipgloss.Width(string(r))
 		switch {
 		case col >= from && col+w <= to:
@@ -720,6 +747,9 @@ func columns(s string, from, to int) string {
 			b.WriteString(strings.Repeat(" ", min(col+w, to)-max(col, from)))
 		}
 		col += w
+	}
+	if styled {
+		b.WriteString("\x1b[0m")
 	}
 	return b.String()
 }

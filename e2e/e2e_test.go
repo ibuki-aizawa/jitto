@@ -876,6 +876,10 @@ func TestStylesWithStdoutRedirected(t *testing.T) {
 	if _, color := s.scr.styled(1); !color {
 		t.Error("status line has no color")
 	}
+	// Row 3 is the first key of the result, "a": "one".
+	if _, color := s.scr.styled(3); !color {
+		t.Error("result has no color")
+	}
 }
 
 func TestNoColor(t *testing.T) {
@@ -889,6 +893,9 @@ func TestNoColor(t *testing.T) {
 	}
 	if _, color := s.scr.styled(1); color {
 		t.Error("status line has color despite NO_COLOR")
+	}
+	if _, color := s.scr.styled(3); color {
+		t.Error("result has color despite NO_COLOR")
 	}
 }
 

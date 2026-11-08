@@ -34,6 +34,9 @@ type harness struct {
 func newHarness(t *testing.T, docs ...any) *harness {
 	t.Helper()
 	h := &harness{t: t, m: New(docs)}
+	// Whether the result has colors depends on the terminal running the tests.
+	// Tests of the colors turn them on.
+	h.m.color = false
 	h.m.debounce = time.Millisecond
 	h.m.slowAfter = time.Millisecond
 	h.useEvaluator(eval.Eval)
@@ -1072,6 +1075,43 @@ func TestCandidatesOverWideCharacters(t *testing.T) {
 	}
 }
 
+func TestResultColors(t *testing.T) {
+	h := newHarness(t, map[string]any{"a": "x", "n": nil})
+	h.m.color = true
+	h.start()
+	view := h.m.View()
+	for _, want := range []string{"\x1b[1m{", "\x1b[34;1m\"a\"", "\x1b[32m\"x\"", "\x1b[90mnull"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("screen lacks %q:\n%q", want, view)
+		}
+	}
+}
+
+func TestResultColorsUnderCandidates(t *testing.T) {
+	long := strings.Repeat("x", 40)
+	h := newHarness(t, map[string]any{"alpha": long, "beta": "あいうえおかきくけこ"})
+	h.m.color = true
+	h.start()
+	h.typeText(".")
+	h.wantCandidates("alpha", "beta")
+	lines := h.paneLines()
+	// The rows look as they do without colors.
+	for i, want := range []string{`{  alpha `, `   beta  : "` + long + `",`} {
+		if got := stripANSI(lines[i]); !strings.HasPrefix(got, want) {
+			t.Errorf("row %d is %q, want it to start with %q", i, got, want)
+		}
+	}
+	// The result right of the list keeps its colors.
+	if !strings.Contains(lines[1], "\x1b[32m") {
+		t.Errorf("row 1 lost the string color: %q", lines[1])
+	}
+	for _, line := range lines {
+		if got := lipgloss.Width(line); got > 80 {
+			t.Errorf("row is %d columns: %q", got, line)
+		}
+	}
+}
+
 func TestColumns(t *testing.T) {
 	tests := []struct {
 		s        string
@@ -1086,6 +1126,11 @@ func TestColumns(t *testing.T) {
 		{"あいう", 0, 3, "あ "},
 		{"あいう", 1, 2, " "},
 		{"", 0, 3, ""},
+		// Colors take no columns, are kept before the cut, and are reset at the end.
+		{"\x1b[32mabc\x1b[0mdef", 1, 4, "\x1b[32mbc\x1b[0md\x1b[0m"},
+		{"\x1b[32mabc\x1b[0mdef", 0, 2, "\x1b[32mab\x1b[0m"},
+		{"ab\x1b[1m{\x1b[0m", 0, 3, "ab\x1b[1m{\x1b[0m\x1b[0m"},
+		{"\x1b[32m\"あい\"\x1b[0m", 2, 5, "\x1b[32m い\x1b[0m"},
 	}
 	for _, tt := range tests {
 		if got := columns(tt.s, tt.from, tt.to); got != tt.want {
