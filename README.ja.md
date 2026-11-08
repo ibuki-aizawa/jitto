@@ -30,7 +30,7 @@ Windows 向けのインタラクティブ jq です。jq 式を入力すると�
 jitto data.json
 
 # 標準入力から読む
-curl https://example.com/data.json | jitto
+curl.exe https://example.com/data.json | jitto
 
 # 確定した結果を次のコマンドへ渡す
 jitto data.json | Set-Content result.json

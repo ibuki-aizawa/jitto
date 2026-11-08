@@ -32,7 +32,7 @@ The name comes from the Japanese word *jitto* (じっと), "to stare intently" �
 jitto data.json
 
 # Read from standard input
-curl https://example.com/data.json | jitto
+curl.exe https://example.com/data.json | jitto
 
 # Pass the confirmed result to the next command
 jitto data.json | Set-Content result.json
