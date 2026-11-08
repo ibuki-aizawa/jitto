@@ -12,7 +12,9 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
+	"github.com/ibuki-aizawa/jitto/internal/highlight"
 	"github.com/ibuki-aizawa/jitto/internal/input"
 	"github.com/ibuki-aizawa/jitto/internal/tui"
 )
@@ -100,11 +102,29 @@ func run(args []string) int {
 	if !ok {
 		return exitCanceled
 	}
-	if _, err := io.WriteString(os.Stdout, output); err != nil {
+	if err := writeResult(os.Stdout, output); err != nil {
 		return fail(err)
 	}
 	fmt.Fprintln(os.Stderr, expr)
 	return exitOK
+}
+
+// writeResult writes output to w, colored like jq when w is a terminal with
+// colors. A pipe or a file gets plain JSON, and so does a terminal with NO_COLOR
+// set.
+func writeResult(w *os.File, output string) error {
+	out := termenv.NewOutput(w)
+	if out.EnvColorProfile() != termenv.Ascii {
+		// Bubble Tea restores the console mode on exit, and a console without
+		// virtual terminal processing would show the escape sequences as text. If
+		// it cannot be turned on, the result stays plain.
+		if restore, err := termenv.EnableVirtualTerminalProcessing(out); err == nil {
+			defer restore()
+			output = highlight.Color(output)
+		}
+	}
+	_, err := io.WriteString(w, output)
+	return err
 }
 
 // options is the parsed command line.

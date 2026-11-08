@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -358,6 +359,31 @@ func TestCmdPipeWithStdoutOnConsole(t *testing.T) {
 	s.wantConsoleContains(`"one"`)
 	s.wantConsoleContains(".a")
 	s.wantConsoleLacks(helpShown)
+}
+
+// On the console, the confirmed result has colors like jq. Files get plain JSON,
+// which the scenarios that read out.txt check.
+func TestColoredResultOnConsole(t *testing.T) {
+	for _, noColor := range []bool{false, true} {
+		t.Run(fmt.Sprintf("NO_COLOR=%v", noColor), func(t *testing.T) {
+			if noColor {
+				t.Setenv("NO_COLOR", "1")
+			}
+			f := newFixture(t)
+			s := f.start(`cmd /c ""{jitto}" data.json"`)
+			s.selectA()
+			s.send(keyEnter)
+			s.wantExit(0)
+			s.wantConsoleContains(`"one"`)
+			row := slices.Index(s.scr.rows(), `"one"`)
+			if row < 0 {
+				t.Fatalf("no row is just the result:\n%s", s.scr.dump())
+			}
+			if _, color := s.scr.styled(row); color == noColor {
+				t.Errorf("result has color %v with NO_COLOR %v", color, noColor)
+			}
+		})
+	}
 }
 
 // Bubble Tea hangs on exit if it opens the console itself, which it does whenever
