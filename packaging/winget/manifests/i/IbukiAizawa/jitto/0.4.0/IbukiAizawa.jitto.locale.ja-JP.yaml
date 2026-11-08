@@ -1,0 +1,26 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.locale.1.28.0.schema.json
+
+PackageIdentifier: IbukiAizawa.jitto
+PackageVersion: 0.4.0
+PackageLocale: ja-JP
+Publisher: Ibuki Aizawa
+PublisherUrl: https://github.com/ibuki-aizawa
+PublisherSupportUrl: https://github.com/ibuki-aizawa/jitto/issues
+Author: Ibuki Aizawa
+PackageName: jitto
+PackageUrl: https://github.com/ibuki-aizawa/jitto
+License: MIT
+LicenseUrl: https://github.com/ibuki-aizawa/jitto/blob/v0.4.0/LICENSE
+ShortDescription: 実際のデータから補完する、インタラクティブな jq。
+Description: |-
+  jitto はコンソールで使うインタラクティブな jq です。ファイルまたは標準入力から JSON を読み込み、入力中の jq 式の結果をその場で表示します。map() や .[] | ... の中でも、その位置のデータに実際にあるキーを候補に出します。Ctrl+T を押すと、map(select(.status == "shipped")) のような、結果に合う式の例をデータのキーと値から作って一覧します。結果は jq と同じ配色で表示し、-r（または Alt+R）で文字列を引用符なしで出力できます。
+  Enter で確定すると、結果を stdout、式を stderr に出力するので、結果を次のコマンドにパイプで渡せます。シングルバイナリで、jq のインストールは不要です。通信は一切行いません。
+Tags:
+- cli
+- jq
+- json
+- terminal
+- tui
+ReleaseNotesUrl: https://github.com/ibuki-aizawa/jitto/releases/tag/v0.4.0
+ManifestType: locale
+ManifestVersion: 1.28.0

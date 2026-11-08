@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.28.0.schema.json
+
+PackageIdentifier: IbukiAizawa.jitto
+PackageVersion: 0.4.0
+InstallerType: portable
+Commands:
+- jitto
+ReleaseDate: 2026-11-08
+Installers:
+- Architecture: x64
+  InstallerUrl: https://github.com/ibuki-aizawa/jitto/releases/download/v0.4.0/jitto-windows-amd64.exe
+  InstallerSha256: C57F30F88A3614B6949774899F531E5C9A77BD65298240A5166C3A02DD8E2BCD
+- Architecture: arm64
+  InstallerUrl: https://github.com/ibuki-aizawa/jitto/releases/download/v0.4.0/jitto-windows-arm64.exe
+  InstallerSha256: 12E8A97E69E878134C00929183B6FFE813BB277CBDFEA0A8F0618429C53371AB
+ManifestType: installer
+ManifestVersion: 1.28.0
