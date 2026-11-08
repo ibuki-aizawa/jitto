@@ -13,20 +13,31 @@ See the result as you type, pick keys that are really there — even inside `map
 
 The name comes from the Japanese word *jitto* (じっと), "to stare intently" — as in staring at your JSON until it makes sense.
 
-![jitto demo](demo/demo.gif)
+![jitto listing example filters for .orders, with map(select(.status == "shipped")) selected and its result below](demo/hero.png)
 
 > 日本語の説明は [README.ja.md](README.ja.md) にあります。Shift_JIS の入力や、PowerShell で日本語を含む JSON を渡す方法は [docs/encoding.ja.md](docs/encoding.ja.md) で説明しています。
 
 ## Features
 
-- **Live results**: The result pane updates on every keystroke, colored like jq.
-- **Key completion from your data**: jitto runs the expression on your JSON and suggests the keys that actually appear there, even inside `.[] | ...` or `map(...)`. Ctrl+N / Ctrl+P write each candidate into the input and preview its result.
-- **Example filters from your data**: Press Ctrl+T for filters that fit the result, such as `map(.name)`, `map(select(.status == "shipped"))` or `group_by(.status)`, written with the keys and values in your JSON. Try each one with Ctrl+N / Ctrl+P. No AI and no network: jitto works them out from the data on your machine.
-- **Keeps the last good result**: While the expression is incomplete or has an error, the previous result stays on screen with the error message.
-- **Fits into scripts**: Enter prints the result to stdout and the expression to stderr. Pipe the result to the next command, and copy the expression into your script.
-- **Raw strings, like jq -r**: Start with `-r`, or press Alt+R at any time to switch, and see the result change at once.
-- **Windows-first, cross-platform**: Works in Windows Terminal, PowerShell and cmd, and reads UTF-8, UTF-16 with a BOM and Shift_JIS. Also runs on macOS and Linux (install with `go install`); Windows is tested most thoroughly.
-- **A single binary**: No jq to install. jitto evaluates expressions with [gojq](https://github.com/itchyny/gojq).
+- **Autocomplete from your data**: jitto runs the expression on your JSON and suggests the keys that actually appear there, even inside `.[] | ...` or `map(...)`.
+- **Example filters, no AI**: Ctrl+T lists filters that fit the result, such as `map(select(.status == "shipped"))` or `group_by(.status)`, built from your keys and values on your machine.
+- **Try before you type**: The result updates on every keystroke, colored like jq. Ctrl+N / Ctrl+P preview each candidate, and the last good result stays while the expression is incomplete.
+- **Made for scripts**: Enter prints the result to stdout and the filter to stderr, so you can pipe one and paste the other.
+- **One binary, Windows-first**: No jq needed; filters run on [gojq](https://github.com/itchyny/gojq). Works in Windows Terminal, PowerShell and cmd, even with Shift_JIS or UTF-16 input, and on macOS and Linux.
+
+## Demos
+
+Key completion, with a preview of each key:
+
+![Key completion in jitto](demo/completion.gif)
+
+Example filters with Ctrl+T:
+
+![Example filters in jitto](demo/examples.gif)
+
+Raw strings with Alt+R, piped to the next command:
+
+![Raw output piped from jitto](demo/output.gif)
 
 ## Quick start
 

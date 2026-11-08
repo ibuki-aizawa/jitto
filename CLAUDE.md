@@ -53,14 +53,14 @@ Windows 向けのインタラクティブ jq ツール。jq 式を入力する�
 - E2E テスト（Windows のみ）: `go test -tags e2e ./e2e`（`-slow` を付けると、時間のかかるシナリオも実行する）
 - 静的解析: `go vet ./...`
 - フォーマット: `gofmt -w .`
-- デモの GIF の作り直し: `vhs demo/demo.tape`（vhs、ttyd、ffmpeg、pwsh が必要）
+- デモの画像と GIF の作り直し: `Get-ChildItem demo\*.tape -Exclude setup.tape | ForEach-Object { vhs $_ }`（vhs、ttyd、ffmpeg、pwsh が必要。1 つだけなら `vhs demo/examples.tape` など）
 
 ## ドキュメント
 
 - README.md は英語で、日本語版は README.ja.md に置く。どちらも同じ構成に保つ。
 - README に収まらない詳細は docs/ に置き、README からリンクする。英語版（`docs/NAME.md`）と日本語版（`docs/NAME.ja.md`）を同じ構成に保つ。今は文字コードと PowerShell の説明（docs/encoding.md）がある。
 - 動作やキー操作を変えたら、README と docs/ の英語版と日本語版を両方更新する。
-- 画面の見た目や補完の操作が変わったら、デモの GIF（demo/demo.gif）も作り直す。デモのデータ（demo/demo.json）は英語だけで書く。
+- 画面の見た目や補完、式の例の操作が変わったら、デモの画像と GIF（demo/hero.png と demo/*.gif）も作り直す。台本は機能ごとに demo/*.tape にあり、共通の設定は demo/setup.tape にまとめる。デモのデータ（demo/demo.json）は英語だけで書く。
 
 ## 進め方
 
