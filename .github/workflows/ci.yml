@@ -12,7 +12,17 @@ permissions:
 
 jobs:
   test:
-    runs-on: windows-latest
+    name: test (${{ matrix.arch }})
+    # Each architecture is tested on its own hardware: the release ships both.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 15
     defaults:
       run:
@@ -27,6 +37,16 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+
+      # An x64 Go on the Arm runner would build and test x64 binaries under
+      # emulation, and the arm64 tests would prove nothing.
+      - name: Check the architecture
+        run: |
+          got="$(go env GOARCH)"
+          if [ "$got" != "${{ matrix.arch }}" ]; then
+            echo "Go builds for $got here, want ${{ matrix.arch }}"
+            exit 1
+          fi
 
       - name: Check formatting
         run: |
@@ -49,7 +69,9 @@ jobs:
         run: go test -tags e2e ./e2e -v
 
       # Fails if a dependency of the release binary has a missing or unknown license.
+      # The dependencies do not depend on the architecture, so one runner is enough.
       - name: Check licenses
+        if: matrix.arch == 'amd64'
         run: |
           CGO_ENABLED=0 go build -trimpath -o jitto.exe .
           go run ./tools/notices jitto.exe > THIRD_PARTY_NOTICES.txt
@@ -57,6 +79,7 @@ jobs:
 
       # macOS and Linux are not released yet, but should keep compiling.
       - name: Build for other platforms
+        if: matrix.arch == 'amd64'
         run: |
           GOOS=linux go build -o /dev/null .
           GOOS=darwin go build -o /dev/null .
