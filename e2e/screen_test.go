@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,6 +29,11 @@ type screen struct {
 	reverse  bool
 	color    bool
 	pending  []byte
+	// head is the start of the raw output, for failure messages.
+	head []byte
+	// replies holds answers to queries from the console, such as the cursor
+	// position, which a real terminal would send back.
+	replies []byte
 }
 
 func newScreen(w, h int) *screen {
@@ -60,17 +66,34 @@ func (s *screen) resize(w, h int) {
 	s.clear()
 }
 
-func (s *screen) write(b []byte) {
+// write takes output from the console and returns the replies to send back to it.
+func (s *screen) write(b []byte) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if n := headSize - len(s.head); n > 0 {
+		s.head = append(s.head, b[:min(n, len(b))]...)
+	}
 	s.pending = append(s.pending, b...)
 	for len(s.pending) > 0 {
 		n := s.step(s.pending)
 		if n == 0 {
-			return
+			break
 		}
 		s.pending = s.pending[n:]
 	}
+	replies := s.replies
+	s.replies = nil
+	return replies
+}
+
+// headSize is how much of the raw output rawHead keeps.
+const headSize = 512
+
+// rawHead returns the start of the raw output, quoted.
+func (s *screen) rawHead() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return strconv.Quote(string(s.head))
 }
 
 // step consumes one token and returns its length, or 0 if it is incomplete.
@@ -166,6 +189,14 @@ func (s *screen) csi(params string, final byte) {
 		return def
 	}
 	switch final {
+	case 'n': // Device status report.
+		if params == "6" {
+			s.replies = append(s.replies, fmt.Sprintf("\x1b[%d;%dR", s.row+1, s.col+1)...)
+		}
+	case 'c': // Primary device attributes: answer as a VT100.
+		if params == "" || params == "0" {
+			s.replies = append(s.replies, "\x1b[?1;0c"...)
+		}
 	case 'H', 'f':
 		s.row, s.col = arg(0, 1)-1, arg(1, 1)-1
 	case 'A':

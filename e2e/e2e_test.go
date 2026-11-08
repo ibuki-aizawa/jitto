@@ -162,7 +162,9 @@ func (f *fixture) start(cmdline string) *session {
 			n, err := pty.Read(buf)
 			if n > 0 {
 				s.received.Add(int64(n))
-				s.scr.write(buf[:n])
+				if replies := s.scr.write(buf[:n]); len(replies) > 0 {
+					_, _ = pty.Write(replies)
+				}
 			}
 			if err != nil {
 				return
@@ -223,7 +225,7 @@ func (s *session) waitFor(what string, timeout time.Duration, cond func(screenTe
 // state describes the process and its output, for failures where the screen
 // shows nothing useful.
 func (s *session) state() string {
-	received := fmt.Sprintf("%d bytes received", s.received.Load())
+	received := fmt.Sprintf("%d bytes received, starting %s", s.received.Load(), s.scr.rawHead())
 	if s.exited {
 		return "exited, " + received
 	}
