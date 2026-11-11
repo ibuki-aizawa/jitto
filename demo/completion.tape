@@ -1,4 +1,4 @@
-# Key completion from the data. From the repository root, run:
+# Key and value completion from the data. From the repository root, run:
 #
 #   vhs demo/completion.tape
 #
@@ -38,8 +38,15 @@ Sleep 600ms
 Tab
 Sleep 800ms
 
-# The expression fails while it is incomplete; the last good result stays.
-Type ` == "shipped")`
+# Values after ==. The expression fails while it is incomplete; the last good
+# result stays.
+Type ` == "`
+Sleep 1.5s
+Type "s"
+Sleep 600ms
+Tab
+Sleep 800ms
+Type ")"
 Sleep 1.2s
 
 Type " | ."
