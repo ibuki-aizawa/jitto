@@ -19,7 +19,7 @@ The name comes from the Japanese word *jitto* (じっと), "to stare intently" �
 
 ## Features
 
-- **Autocomplete from your data**: jitto runs the expression on your JSON and suggests the keys that actually appear there, even inside `.[] | ...` or `map(...)`.
+- **Autocomplete from your data**: jitto runs the expression on your JSON and suggests the keys that actually appear there, even inside `.[] | ...` or `map(...)`. After `==`, it suggests the values, as in `.status == "shipped"`.
 - **Example filters, no AI**: Ctrl+T lists filters that fit the result, such as `map(select(.status == "shipped"))` or `group_by(.status)`, built from your keys and values.
 - **Your data stays on your machine**: jitto never connects to the network. No AI service, no telemetry, no update checks. It reads your file or pipe, and nothing leaves your computer, so it is fine for logs and API responses you cannot share.
 - **Try before you type**: The result updates on every keystroke, colored like jq. Ctrl+N / Ctrl+P preview each candidate, and the last good result stays while the expression is incomplete.
@@ -135,6 +135,13 @@ When you start a key, as in `.` or `.items[0].na`, jitto lists the keys availabl
 - Esc restores what you typed and closes the list.
 - Keys that need quotes, such as `a-b`, are inserted as `."a-b"`.
 
+### Value completion
+
+After `==` or `!=`, as in `.status == ` or `select(.status == "sh`, jitto lists the values that the left side gives on your data: strings, numbers, `true`, `false` and `null`. Arrays and objects are not suggested.
+
+- Candidates are written as in JSON, so strings come with quotes, as in `"shipped"`. You can start with or without the opening quote.
+- The list is filtered and used as in key completion: Ctrl+N / Ctrl+P, Tab / Ctrl+Y and Esc work the same.
+
 ### Example filters (Ctrl+T)
 
 Press Ctrl+T to list filters that can follow the expression, each with what it gives. jitto makes them from the result: its types, keys and values. For `.orders` in the [demo data](demo/demo.json), the list starts like this:
@@ -190,7 +197,7 @@ Piping non-ASCII text in PowerShell needs some settings, and so does piping the 
 ## Details
 
 - With multiple JSON documents (such as NDJSON), the expression applies to each document, as in jq.
-- Key completion examines up to 10,000 values, lists up to 1,000 keys, and stops after 1 second.
+- Key and value completion examine up to 10,000 values, list up to 1,000 candidates, and stop after 1 second.
 - Example filters examine up to 10,000 values, list up to 10 examples, and stop after 1 second.
 - The preview shows up to 1 MiB, and evaluation stops after 5 seconds. Enter evaluates without these limits and prints the whole result. If it takes long, edit the expression to cancel, or press Ctrl+C to quit.
 - jitto draws the screen on stderr, so stderr cannot be redirected.
@@ -215,11 +222,12 @@ Most differences from jq come from gojq.
 - Results nested deeper than 10,000 levels cannot be shown.
 - Non-identifier keys need quotes, as in jq: `."名前"`. Typing `.名前` shows the correct form with the error.
 
-Key completion:
+Key and value completion:
 
 - Only object keys are suggested, not array indexes such as `[0]` or `[]`.
 - Inside quotes (`."na`), no candidates are shown. After `.`, candidates with quotes appear.
 - Inside an unfinished `if` (until `end`) or `def` (until `;`), as in `if . then .na`, no candidates are shown. After it is closed, as in `if . then . end | .na`, they are.
+- Values are suggested only on the right of `==` and `!=`, not after other operators such as `<`, nor on the left, as in `"shipped" == .status`.
 
 ## License
 
