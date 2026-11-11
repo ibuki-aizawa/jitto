@@ -193,3 +193,130 @@ func TestCompleteDoesNotModifyDocs(t *testing.T) {
 		t.Errorf("docs changed: %v", docs)
 	}
 }
+
+func valueDoc() map[string]any {
+	return map[string]any{
+		"orders": []any{
+			map[string]any{"id": json.Number("1"), "status": "shipped", "paid": true, "note": nil},
+			map[string]any{"id": json.Number("2"), "status": "pending", "paid": false},
+			map[string]any{"id": json.Number("10"), "status": "Shipped", "paid": true, "items": []any{"x"}},
+			map[string]any{"id": json.Number("1.5"), "status": "配送済み", "tags": map[string]any{"a": "b"}},
+		},
+	}
+}
+
+func TestCompleteValue(t *testing.T) {
+	tests := []struct {
+		name string
+		text string
+		want []string
+	}{
+		{"after ==", ".orders[].status == ", []string{`"pending"`, `"Shipped"`, `"shipped"`, `"配送済み"`}},
+		{"after !=", ".orders[].status != ", []string{`"pending"`, `"Shipped"`, `"shipped"`, `"配送済み"`}},
+		{"no space", ".orders[].status==", []string{`"pending"`, `"Shipped"`, `"shipped"`, `"配送済み"`}},
+		{"opening quote", `.orders[].status == "`, []string{`"pending"`, `"Shipped"`, `"shipped"`, `"配送済み"`}},
+		{"prefix ignores case", `.orders[].status == "S`, []string{`"Shipped"`, `"shipped"`}},
+		{"non-ASCII prefix", `.orders[].status == "配`, []string{`"配送済み"`}},
+		{"inside select", `.orders | map(select(.status == "p`, []string{`"pending"`}},
+		{"after a pipe", `.orders[] | .status == "p`, []string{`"pending"`}},
+		{"numbers", ".orders[].id == ", []string{"1", "1.5", "10", "2"}},
+		{"number prefix", ".orders[].id == 1", []string{"1", "1.5", "10"}},
+		{"booleans, and null where the key is missing", ".orders[].paid == ", []string{"false", "null", "true"}},
+		{"boolean prefix", ".orders[].paid == t", []string{"true"}},
+		{"null", ".orders[0].note == n", []string{"null"}},
+		{"missing key is null", ".orders[].note == ", []string{"null"}},
+		{"no arrays or objects", ".orders[].items == ", []string{"null"}},
+		{"left side with +", `.orders[].id + 1 == 1`, []string{"11"}},
+		{"after and", `.orders[] | .paid == true and .status == "`, []string{`"Shipped"`, `"shipped"`}},
+		{"inside string interpolation", `"\(.orders[0].status == "s`, []string{`"shipped"`}},
+
+		{"no comparison", ".orders[].status ", nil},
+		{"assignment", `.orders[].status = "`, nil},
+		{"update", `.orders[].status |= "`, nil},
+		{"less than", ".orders[].id < ", nil},
+		{"closed string", `.orders[].status == "pending"`, nil},
+		{"no match", `.orders[].status == "z`, nil},
+		{"interpolation in the value", `.orders[].status == "\(.x) `, nil},
+		{"unparsable", `if .orders[].status == "`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := Complete(context.Background(), tt.text, []any{valueDoc()})
+			if texts := candidateTexts(got.Candidates); !reflect.DeepEqual(texts, tt.want) {
+				t.Errorf("got %q, want %q", texts, tt.want)
+			}
+		})
+	}
+}
+
+func TestCompleteValueKeepsKeyCompletion(t *testing.T) {
+	// A key on the right side of == is still completed as a key.
+	got := Complete(context.Background(), ".orders[0].id == .orders[0].st", []any{valueDoc()})
+	if texts := candidateTexts(got.Candidates); !reflect.DeepEqual(texts, []string{"status"}) {
+		t.Errorf("got %q", texts)
+	}
+}
+
+func TestCompleteValuePartial(t *testing.T) {
+	text := `.orders[].status == "sh`
+	got := Complete(context.Background(), text, []any{valueDoc()})
+	if got.Start != len(`.orders[].status == `) || got.Partial != `"sh` {
+		t.Errorf("got Start %d, Partial %q", got.Start, got.Partial)
+	}
+	want := []Candidate{{Key: `"Shipped"`, Text: `"Shipped"`}, {Key: `"shipped"`, Text: `"shipped"`}}
+	if !reflect.DeepEqual(got.Candidates, want) {
+		t.Errorf("got %+v, want %+v", got.Candidates, want)
+	}
+}
+
+func TestNarrowValue(t *testing.T) {
+	c := Complete(context.Background(), `.orders[].status == "`, []any{valueDoc()})
+	tests := []struct {
+		name string
+		text string
+		want []string
+	}{
+		{"same text", `.orders[].status == "`, []string{`"pending"`, `"Shipped"`, `"shipped"`, `"配送済み"`}},
+		{"more of the value", `.orders[].status == "sh`, []string{`"Shipped"`, `"shipped"`}},
+		{"the closing quote is still to come", `.orders[].status == "pending`, []string{`"pending"`}},
+		{"closing quote", `.orders[].status == "pending"`, nil},
+		{"space in the string", `.orders[].status == "s `, nil},
+		{"other text", `.other == "`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := candidateTexts(c.Narrow(tt.text)); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestCompleteValueCandidatesParse checks that inserting any value gives a valid
+// expression that is true for that value.
+func TestCompleteValueCandidatesParse(t *testing.T) {
+	values := []any{"a b", `q"uote`, "back\\slash", "<&>", "tab\t", "名前", json.Number("12345678901234567890"), json.Number("-0.5"), json.Number("1e3"), true, nil}
+	docs := make([]any, len(values))
+	for i, v := range values {
+		docs[i] = map[string]any{"v": v}
+	}
+	got := Complete(context.Background(), ".v == ", docs)
+	if len(got.Candidates) != len(values) {
+		t.Fatalf("got %d candidates, want %d: %q", len(got.Candidates), len(values), candidateTexts(got.Candidates))
+	}
+	for _, c := range candidateTexts(got.Candidates) {
+		query, err := gojq.Parse("[.[] | select(.v == " + c + ")] | length")
+		if err != nil {
+			t.Errorf("%q: %v", c, err)
+			continue
+		}
+		code, err := gojq.Compile(query)
+		if err != nil {
+			t.Errorf("%q: %v", c, err)
+			continue
+		}
+		if v, _ := code.Run(docs).Next(); v != 1 {
+			t.Errorf("%q matches %v values, want 1", c, v)
+		}
+	}
+}

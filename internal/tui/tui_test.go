@@ -786,6 +786,30 @@ func TestTabQuotesKeysThatNeedIt(t *testing.T) {
 	h.wantPane(`"太郎"`)
 }
 
+func TestValueCandidates(t *testing.T) {
+	h := newHarness(t, []any{
+		map[string]any{"status": "shipped"},
+		map[string]any{"status": "pending"},
+	})
+	h.start()
+	h.typeText(`map(select(.status == "`)
+	h.wantCandidates(`"pending"`, `"shipped"`)
+	// The text of the list starts in the column of the opening quote.
+	quoteCol := lipgloss.Width(prompt + `map(select(.status == `)
+	if got := strings.Index(stripANSI(h.paneLines()[0]), ` "pending" `); got != quoteCol-1 {
+		t.Errorf("list at column %d, want %d:\n%s", got, quoteCol-1, h.m.View())
+	}
+	h.send(runes("s"))
+	h.wantCandidates(`"shipped"`)
+	h.settle(h.send(tea.KeyMsg{Type: tea.KeyTab}))
+	h.wantInput(`map(select(.status == "shipped"`, 31)
+	h.typeText("))")
+	h.wantPane(`"status": "shipped"`)
+	if strings.Contains(h.m.View(), "pending") {
+		t.Errorf("pending is not filtered out:\n%s", h.m.View())
+	}
+}
+
 func TestTabWithoutCandidatesDoesNothing(t *testing.T) {
 	h := newHarness(t, keysDoc())
 	h.start()
